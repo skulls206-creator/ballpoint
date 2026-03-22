@@ -1,0 +1,201 @@
+You are building a modern, offline-first Progressive Web App note-taking application, similar in feel to Notesnook or Notion, but completely local and file-based. The app must be built with HTML, CSS, and JavaScript (or TypeScript compiled to JS), using a clean component-based structure. Use vanilla JS or a lightweight framework if needed, but keep it easy to run on Replit.
+
+High-level goals
+Build a PWA that installs and runs like a native app and works fully offline.
+
+The app manages notes that are stored as plain .md or .txt files on the user’s local file system.
+
+The app reads/writes directly to a user-chosen folder using the File System Access API (with a graceful fallback where that’s not supported).
+
+The UI should feel like a beautiful, modern local notes app (inspired by Notesnook / Notion) but with no server dependency.
+
+Core requirements
+Project setup
+
+Create a minimal, but production-ready project structure:
+
+index.html
+
+main.js (or src/main.ts compiled to dist/main.js)
+
+styles.css
+
+manifest.webmanifest
+
+service-worker.js
+
+Configure everything so it runs cleanly on Replit with a simple static server.
+
+PWA basics
+
+Implement a web app manifest with:
+
+Name, short_name, icons, theme_color, background_color.
+
+"display": "standalone" and proper start_url so it behaves like an app when installed.
+​
+
+Implement a service-worker.js that:
+
+Caches the app shell (HTML, CSS, JS, icons, manifest).
+
+Supports offline usage so the UI loads with no network.
+
+Uses a basic cache strategy (cache-first for static assets is fine).
+
+Local file / vault model
+
+Implement a “vault” concept based on a folder on the user’s machine:
+
+On first launch, show a “Choose notes folder” screen with a button that uses window.showDirectoryPicker() to let the user pick a folder.
+
+After the user picks a folder:
+
+Recursively scan that folder for .md and .txt files.
+
+Build an in-memory index of notes with:
+
+ID
+
+File handle
+
+File path / folder
+
+Title (first line or derived from filename)
+
+Optional tags/frontmatter if present
+
+Created/modified timestamps (from the file metadata if possible).
+
+Store the FileSystemDirectoryHandle (and possibly file handles) in IndexedDB so the user does not have to re-select every time, while respecting permission requirements.
+
+Implement functions to:
+
+Read a note file and load its content into the editor.
+
+Save changes back to the file (using createWritable() → write() → close()).
+
+Create a new note file in the chosen folder (e.g., timestamped filename), and immediately open it.
+
+Fallback for non-supporting browsers
+
+Detect File System Access API support via feature detection.
+
+If not supported, provide a fallback mode where the user can:
+
+Import individual notes via <input type="file" multiple> or drag-and-drop.
+
+Edit them in memory.
+
+Download/export updated files back to disk (e.g., as downloads) instead of saving in place.
+
+Clearly show a banner or message indicating limited functionality in fallback mode.
+
+UI / UX requirements
+
+Build a clean, modern, responsive layout:
+
+A left sidebar:
+
+Shows a list of notes in the current vault (title + maybe first line preview).
+
+Shows folders or tags if you implement them.
+
+Includes buttons: “New note”, “Open vault/folder”, “Settings”.
+
+Main editor area:
+
+Top bar with note title and basic actions (save, delete, rename, move).
+
+Editor that supports Markdown editing with live preview or split view.
+
+For now, a simple textarea + rendered markdown preview is enough, but structure the code so it’s easy to swap in a richer editor later.
+
+Use CSS to make it feel like a desktop notes app: subtle shadows, good typography, dark mode toggle, smooth transitions.
+
+Right-click context menu
+
+Implement a custom right-click (context) menu inside the app:
+
+Disable the default browser context menu inside the app’s main content area using the contextmenu event.
+
+Show a custom context menu <div> positioned at the mouse cursor that appears on right-click on:
+
+The notes list (e.g., right-click a note item).
+
+The editor area (for text-related actions).
+
+The context menu should offer actions such as:
+
+On a note item: “Open in new tab/window (if relevant)”, “Rename”, “Duplicate”, “Delete”, “Reveal in folder” (where possible), “Copy note path/name”.
+
+On the editor: “Copy”, “Paste” (where possible), “Select all”, “Toggle preview”, “Open note in external editor” (where possible).
+
+Clicking anywhere else or pressing Escape should hide the context menu.
+
+Make sure the context menu is keyboard-accessible where reasonable.
+
+Note structure and features
+
+Start with a straightforward Markdown note model:
+
+Each note is a plain text file; preferred extension .md.
+
+Use the first # Heading line or first line as the note title.
+
+Support basic Markdown syntax: headings, bold, italics, lists, code blocks, links.
+
+Render Markdown to HTML for the preview using a small client-side Markdown library (or a minimal implementation).
+
+Optional: recognize simple YAML frontmatter at the top for metadata like tags or status; parse it if present, but don’t require it.
+
+Commands and keyboard shortcuts
+
+Add a few keyboard shortcuts to make it feel like a real app:
+
+Ctrl/Cmd + N → new note.
+
+Ctrl/Cmd + S → save current note.
+
+Ctrl/Cmd + P or Ctrl/Cmd + K → open a simple “command palette” to search and jump to notes.
+
+State and persistence
+
+Store UI state in local storage or IndexedDB:
+
+Currently open note ID.
+
+Sidebar open/collapsed state.
+
+Dark/light theme preference.
+
+On app load, restore this state and re-open the last note if possible.
+
+Privacy and messaging
+
+Add a clear message in the UI (e.g., in settings/about panel) that:
+
+All notes are stored as local files on the user’s device.
+
+No data is sent to any remote server.
+
+The app is a local-first PWA that can run fully offline.
+
+Implementation details for the AI
+Use modern JavaScript (ES modules) and keep code organized into logical modules (e.g., fileSystem.js, notesStore.js, ui.js, pwa.js, contextMenu.js).
+
+Comment the code where interactions with the File System Access API, service worker, and context menu are implemented, so I can tweak behavior later.
+
+Ensure everything is wired so that after running on Replit, I can:
+
+Open the app in the browser.
+
+Click “Choose notes folder”.
+
+See my .md/.txt notes listed in the sidebar.
+
+Open, edit, and save notes back to disk.
+
+Right-click in the note list or editor to get the custom context menu.
+
+Install the app as a PWA and use it offline.

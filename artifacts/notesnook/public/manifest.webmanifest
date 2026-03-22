@@ -1,0 +1,19 @@
+{
+  "name": "LocalNotes",
+  "short_name": "LocalNotes",
+  "description": "A beautiful local-first markdown note-taking app. All your notes stay on your device.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#141418",
+  "theme_color": "#7c5cfc",
+  "orientation": "landscape",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "utilities"]
+}

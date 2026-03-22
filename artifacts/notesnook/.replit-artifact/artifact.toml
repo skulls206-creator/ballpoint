@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "LocalNotes"
+version = "1.0.0"
+id = "artifacts/notesnook"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 22892
+
+[services.development]
+run = "pnpm --filter @workspace/notesnook run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/notesnook", "run", "build" ]
+publicDir = "artifacts/notesnook/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "22892"
+BASE_PATH = "/"
