@@ -2,11 +2,12 @@ import { useState, useMemo } from 'react';
 import {
   FileText, Star, Archive, Trash2, Tag, ChevronDown, ChevronRight,
   Plus, FolderOpen, FolderX, Sun, Moon, Settings, Zap, LogOut, Search,
-  Download, CheckCircle2,
+  Download, CheckCircle2, ListTodo, Clock, Calendar, CheckCheck,
 } from 'lucide-react';
 import { useNotesStore, SidebarSection } from '../lib/store';
 import { useAuth } from '../lib/authContext';
 import { AccentColor, getAllTags } from '../lib/metadata';
+import { selectTaskCounts } from '../lib/tasks';
 import { usePWAInstall } from '../lib/usePWAInstall';
 import { cn } from '../lib/utils';
 
@@ -34,6 +35,7 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
   const accentColor    = useNotesStore(s => s.accentColor);
   const notes          = useNotesStore(s => s.notes);
   const metadata       = useNotesStore(s => s.metadata);
+  const tasks          = useNotesStore(s => s.tasks);
 
   const setActiveSection = useNotesStore(s => s.setActiveSection);
   const createNewNote    = useNotesStore(s => s.createNewNote);
@@ -49,6 +51,7 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
     archive:   notes.filter(n => n.status === 'archived').length,
     trash:     notes.filter(n => n.status === 'trashed').length,
   }), [notes]);
+  const taskCounts = useMemo(() => selectTaskCounts(tasks), [tasks]);
 
   const [tagsOpen,     setTagsOpen]     = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
@@ -60,11 +63,17 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
   };
 
   type NavItem = { id: SidebarSection; icon: React.ReactNode; label: string; count: number };
-  const navItems: NavItem[] = [
+  const noteItems: NavItem[] = [
     { id: { type: 'all' },       icon: <FileText size={13} />, label: 'Notes',     count: counts.all       },
     { id: { type: 'favorites' }, icon: <Star size={13} />,     label: 'Favorites', count: counts.favorites  },
     { id: { type: 'archive' },   icon: <Archive size={13} />,  label: 'Archive',   count: counts.archive    },
     { id: { type: 'trash' },     icon: <Trash2 size={13} />,   label: 'Trash',     count: counts.trash      },
+  ];
+  const taskItems: NavItem[] = [
+    { id: { type: 'tasks-inbox' },    icon: <ListTodo size={13} />,  label: 'Inbox',     count: taskCounts.inbox    },
+    { id: { type: 'tasks-today' },    icon: <Clock size={13} />,     label: 'Today',     count: taskCounts.today    },
+    { id: { type: 'tasks-upcoming' }, icon: <Calendar size={13} />,  label: 'Upcoming',  count: taskCounts.upcoming },
+    { id: { type: 'tasks-done' },     icon: <CheckCheck size={13} />,label: 'Completed', count: taskCounts.done     },
   ];
 
   return (
@@ -181,7 +190,30 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
 
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-1 px-1.5 space-y-px">
-        {navItems.map(item => {
+        {/* Notes section */}
+        <p className="px-1.5 pt-1 pb-0.5 text-[9px] font-semibold uppercase tracking-widest text-sidebar-foreground/30">Notes</p>
+        {noteItems.map(item => {
+          const active = isSectionActive(item.id);
+          return (
+            <button key={item.id.type} onClick={() => setActiveSection(item.id)}
+              className={cn("w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-[12px] transition-colors",
+                active
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                  : "text-sidebar-foreground/55 hover:text-sidebar-foreground hover:bg-sidebar-accent/50")}>
+              <span className={active ? "text-primary" : "text-sidebar-foreground/35"}>{item.icon}</span>
+              <span className="flex-1 text-left">{item.label}</span>
+              {item.count > 0 && (
+                <span className={cn("text-[10px] tabular-nums", active ? "text-primary font-semibold" : "text-sidebar-foreground/30")}>
+                  {item.count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+
+        {/* Tasks section */}
+        <p className="px-1.5 pt-3 pb-0.5 text-[9px] font-semibold uppercase tracking-widest text-sidebar-foreground/30">Tasks</p>
+        {taskItems.map(item => {
           const active = isSectionActive(item.id);
           return (
             <button key={item.id.type} onClick={() => setActiveSection(item.id)}

@@ -167,6 +167,7 @@ export function Editor() {
   const setTags        = useNotesStore(s => s.setTags);
   const trashNote      = useNotesStore(s => s.trashNote);
   const restoreNote    = useNotesStore(s => s.restoreNote);
+  const toggleTask     = useNotesStore(s => s.toggleTask);
 
   const [showPreview, setShowPreview] = useState(false);
   const [titleValue, setTitleValue]   = useState('');
@@ -209,8 +210,36 @@ export function Editor() {
   const cleanHtml = useMemo(() => {
     if (!activeContent?.trim()) return '';
     const raw = marked(activeContent);
-    return DOMPurify.sanitize(typeof raw === 'string' ? raw : String(raw));
+    const sanitized = DOMPurify.sanitize(
+      typeof raw === 'string' ? raw : String(raw),
+      { ADD_TAGS: ['input'], ADD_ATTR: ['type', 'checked', 'disabled'] }
+    );
+    // Remove disabled so checkboxes are clickable in preview
+    return sanitized.replace(/<input([^>]*)\sdisabled/gi, '<input$1');
   }, [activeContent]);
+
+  // Click handler for interactive checkboxes in preview
+  const handlePreviewClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (target.tagName !== 'INPUT' || target.getAttribute('type') !== 'checkbox') return;
+    e.preventDefault();
+    const container = e.currentTarget as HTMLDivElement;
+    const allBoxes = Array.from(container.querySelectorAll('input[type="checkbox"]'));
+    const nthBox = allBoxes.indexOf(target as HTMLInputElement);
+    if (nthBox === -1 || !activeNoteId || !activeContent) return;
+    // Map the nth checkbox to its line in the raw markdown
+    const lines = activeContent.split('\n');
+    let count = -1;
+    for (let lineIdx = 0; lineIdx < lines.length; lineIdx++) {
+      if (/^\s*-\s+\[[ x]\]/i.test(lines[lineIdx])) {
+        count++;
+        if (count === nthBox) {
+          toggleTask(`${activeNoteId}::${lineIdx}`);
+          break;
+        }
+      }
+    }
+  }, [activeContent, activeNoteId, toggleTask]);
 
   if (!activeNoteId || !activeNote) {
     return (
@@ -357,7 +386,8 @@ export function Editor() {
           <div className="flex-1 border-l border-border bg-card/10 overflow-y-auto px-6 py-4">
             {activeContent.trim() ? (
               <div
-                className="prose dark:prose-invert prose-sm max-w-none prose-headings:font-semibold prose-a:text-primary prose-pre:bg-muted prose-pre:border prose-pre:border-border prose-code:text-primary prose-code:bg-primary/10 prose-code:px-1 prose-code:py-0.5 prose-code:rounded"
+                className="prose dark:prose-invert prose-sm max-w-none prose-headings:font-semibold prose-a:text-primary prose-pre:bg-muted prose-pre:border prose-pre:border-border prose-code:text-primary prose-code:bg-primary/10 prose-code:px-1 prose-code:py-0.5 prose-code:rounded [&_input[type=checkbox]]:accent-[hsl(var(--primary))] [&_input[type=checkbox]]:cursor-pointer"
+                onClick={!isReadOnly ? handlePreviewClick : undefined}
                 dangerouslySetInnerHTML={{ __html: cleanHtml }}
               />
             ) : (

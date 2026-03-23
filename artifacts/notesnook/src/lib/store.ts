@@ -7,6 +7,10 @@ import {
   loadAllMetadata, saveAllMetadata, updateNoteMeta, removeNoteMeta,
   getAllTags, MetadataMap, NoteStatus, AccentColor, DEFAULT_META,
 } from './metadata';
+import {
+  Task, TaskMap, loadAllTasks, saveAllTasks,
+  parseTasksFromContent, mergeTasks, toggleTaskInContent,
+} from './tasks';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -15,7 +19,11 @@ export type SidebarSection =
   | { type: 'favorites' }
   | { type: 'archive' }
   | { type: 'trash' }
-  | { type: 'tag'; tag: string };
+  | { type: 'tag'; tag: string }
+  | { type: 'tasks-inbox' }
+  | { type: 'tasks-today' }
+  | { type: 'tasks-upcoming' }
+  | { type: 'tasks-done' };
 
 interface NotesState {
   userId: number | null;
@@ -23,6 +31,7 @@ interface NotesState {
   /** All notes merged with metadata */
   notes: NoteFile[];
   metadata: MetadataMap;
+  tasks: TaskMap;
   activeNoteId: string | null;
   activeContent: string;
   isDirty: boolean;
@@ -45,11 +54,8 @@ interface NotesState {
   saveActiveNote: () => Promise<void>;
   createNewNote: (title?: string) => Promise<void>;
   renameNote: (id: string, newTitle: string) => Promise<void>;
-  /** Moves to trash — doesn't delete from disk */
   trashNote: (id: string) => Promise<void>;
-  /** Restores from trash/archive to active */
   restoreNote: (id: string) => Promise<void>;
-  /** Permanently removes from disk + metadata */
   permanentlyDeleteNote: (id: string) => Promise<void>;
 
   // Metadata actions
@@ -59,6 +65,12 @@ interface NotesState {
   setReminder: (id: string, reminderTime: string | null) => Promise<void>;
   dismissReminder: (id: string) => Promise<void>;
   fireReminder: (id: string) => Promise<void>;
+
+  // Task actions
+  syncNoteTasks: (noteId: string, noteTitle: string, content: string) => Promise<void>;
+  toggleTask: (taskId: string) => Promise<void>;
+  setTaskDueDate: (taskId: string, dueDate: string | null) => Promise<void>;
+  createTaskNote: (text?: string) => Promise<void>;
 
   // UI
   setActiveSection: (section: SidebarSection) => void;
@@ -105,8 +117,6 @@ function applyTheme(theme: 'light' | 'dark', accent: AccentColor) {
   ALL_ACCENTS.forEach(a => root.classList.remove(`accent-${a}`));
   root.classList.add(`accent-${accent}`);
 
-  // Dynamically update <meta name="theme-color"> so the installed PWA
-  // toolbar and Android status bar match the current accent + light/dark mode.
   const color = THEME_COLORS[accent]?.[theme] ?? '#141418';
   let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
   if (!meta) {
@@ -117,9 +127,7 @@ function applyTheme(theme: 'light' | 'dark', accent: AccentColor) {
   meta.content = color;
 }
 
-// ── Apply saved theme immediately on module load (before React mounts) ────────
-// Without this, users always see the default violet/light theme until after
-// login completes and init() runs — even if they had a dark/orange theme saved.
+// Apply saved theme immediately on module load (before React mounts)
 applyTheme(getInitialTheme(), getInitialAccent());
 
 /** Merge flat file list with metadata map into enriched NoteFile[] */
@@ -133,6 +141,32 @@ function mergeWithMeta(
   });
 }
 
+/**
+ * Background: scan ALL notes in the vault and build a complete task index.
+ * Runs after init so the Tasks views have data for notes never explicitly opened.
+ */
+async function buildFullTaskIndex(
+  userId: number,
+  notes: NoteFile[],
+  existingTasks: TaskMap
+): Promise<TaskMap> {
+  let allTasks = { ...existingTasks };
+  for (const note of notes) {
+    if (note.status !== 'active') continue;
+    try {
+      const content = await readNote(note.handle);
+      const parsed = parseTasksFromContent(note.id, note.title, content);
+      const otherTasks = Object.fromEntries(
+        Object.entries(allTasks).filter(([, t]) => t.noteId !== note.id)
+      );
+      const merged = mergeTasks(parsed, allTasks);
+      allTasks = { ...otherTasks, ...merged };
+    } catch { /* skip unreadable notes */ }
+  }
+  await saveAllTasks(userId, allTasks);
+  return allTasks;
+}
+
 // ─── Store ───────────────────────────────────────────────────────────────────
 
 export const useNotesStore = create<NotesState>((set, get) => ({
@@ -140,6 +174,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   vaultHandle: null,
   notes: [],
   metadata: {},
+  tasks: {},
   activeNoteId: null,
   activeContent: '',
   isDirty: false,
@@ -155,9 +190,13 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
     const handle = await loadVault(userId);
     if (handle) {
-      const [rawFiles, meta] = await Promise.all([scanFolder(handle), loadAllMetadata(userId)]);
+      const [rawFiles, meta, existingTasks] = await Promise.all([
+        scanFolder(handle),
+        loadAllMetadata(userId),
+        loadAllTasks(userId),
+      ]);
       const notes = mergeWithMeta(rawFiles, meta);
-      set({ vaultHandle: handle, notes, metadata: meta, isLoading: false });
+      set({ vaultHandle: handle, notes, metadata: meta, tasks: existingTasks, isLoading: false });
 
       const lastId = localStorage.getItem(activeNoteKey(userId));
       if (lastId && notes.find(n => n.id === lastId)) {
@@ -166,13 +205,18 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         const first = notes.find(n => n.status === 'active');
         if (first) get().selectNote(first.id);
       }
+
+      // Background full-vault task scan (non-blocking)
+      buildFullTaskIndex(userId, notes, existingTasks)
+        .then(tasks => set({ tasks }))
+        .catch(() => {});
     } else {
       set({ isLoading: false });
     }
   },
 
   reset: () => set({
-    userId: null, vaultHandle: null, notes: [], metadata: {},
+    userId: null, vaultHandle: null, notes: [], metadata: {}, tasks: {},
     activeNoteId: null, activeContent: '', isDirty: false, isLoading: false, searchQuery: '',
   }),
 
@@ -180,17 +224,24 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const handle = await openVault(userId);
     if (!handle) return;
     set({ isLoading: true });
-    const [rawFiles, meta] = await Promise.all([scanFolder(handle), loadAllMetadata(userId)]);
+    const [rawFiles, meta, existingTasks] = await Promise.all([
+      scanFolder(handle),
+      loadAllMetadata(userId),
+      loadAllTasks(userId),
+    ]);
     const notes = mergeWithMeta(rawFiles, meta);
-    set({ vaultHandle: handle, notes, metadata: meta, activeNoteId: null, activeContent: '', isDirty: false, isLoading: false });
+    set({ vaultHandle: handle, notes, metadata: meta, tasks: existingTasks, activeNoteId: null, activeContent: '', isDirty: false, isLoading: false });
     const first = notes.find(n => n.status === 'active');
     if (first) get().selectNote(first.id);
+    buildFullTaskIndex(userId, notes, existingTasks)
+      .then(tasks => set({ tasks }))
+      .catch(() => {});
   },
 
   disconnectVault: async (userId) => {
     await clearVault(userId);
     localStorage.removeItem(activeNoteKey(userId));
-    set({ vaultHandle: null, notes: [], metadata: {}, activeNoteId: null, activeContent: '', isDirty: false });
+    set({ vaultHandle: null, notes: [], metadata: {}, tasks: {}, activeNoteId: null, activeContent: '', isDirty: false });
   },
 
   refreshNotes: async () => {
@@ -209,6 +260,8 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       const content = await readNote(note.handle);
       localStorage.setItem(activeNoteKey(state.userId), id);
       set({ activeNoteId: id, activeContent: content, isDirty: false });
+      // Sync tasks in background (don't await so UI is snappy)
+      get().syncNoteTasks(id, note.title, content).catch(() => {});
     }
   },
 
@@ -222,6 +275,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       await saveNote(note.handle, activeContent);
       set({ isDirty: false });
       await get().refreshNotes();
+      get().syncNoteTasks(activeNoteId, note.title, activeContent).catch(() => {});
     }
   },
 
@@ -235,7 +289,6 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     while (notes.some(n => n.title === finalTitle)) finalTitle = `${title} ${i++}`;
 
     const handle = await createNote(vaultHandle, finalTitle);
-    // Initialize metadata as active
     const meta = await updateNoteMeta(userId, handle.name, { status: 'active' });
     set({ metadata: meta });
     await get().refreshNotes();
@@ -251,7 +304,6 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
     const newHandle = await renameNote(vaultHandle, note.handle, newTitle);
 
-    // Move metadata to new key
     const oldMeta = metadata[id];
     const newMeta = { ...metadata };
     if (oldMeta) {
@@ -261,6 +313,20 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     await saveAllMetadata(userId, newMeta);
     set({ metadata: newMeta });
     await get().refreshNotes();
+
+    // Move tasks to new note ID
+    const { tasks } = get();
+    const newTasks: TaskMap = {};
+    for (const [key, t] of Object.entries(tasks)) {
+      if (t.noteId === id) {
+        const newId = key.replace(`${id}::`, `${newHandle.name}::`);
+        newTasks[newId] = { ...t, id: newId, noteId: newHandle.name, noteTitle: newTitle };
+      } else {
+        newTasks[key] = t;
+      }
+    }
+    await saveAllTasks(userId, newTasks);
+    set({ tasks: newTasks });
 
     if (activeNoteId === id && userId) {
       localStorage.setItem(activeNoteKey(userId), newHandle.name);
@@ -274,7 +340,13 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const newMeta = await updateNoteMeta(userId, id, { status: 'trashed', trashedAt: Date.now() }, { ...metadata });
     set({ metadata: newMeta });
     await get().refreshNotes();
-    // If active note was trashed, pick another
+
+    // Remove tasks for trashed note
+    const { tasks } = get();
+    const newTasks = Object.fromEntries(Object.entries(tasks).filter(([, t]) => t.noteId !== id));
+    await saveAllTasks(userId, newTasks);
+    set({ tasks: newTasks });
+
     if (get().activeNoteId === id) {
       const next = get().notes.find(n => n.status === 'active');
       if (next) get().selectNote(next.id);
@@ -296,6 +368,13 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     await deleteNote(vaultHandle, id);
     const newMeta = await removeNoteMeta(userId, id);
     set({ metadata: newMeta });
+
+    // Remove tasks for deleted note
+    const { tasks } = get();
+    const newTasks = Object.fromEntries(Object.entries(tasks).filter(([, t]) => t.noteId !== id));
+    await saveAllTasks(userId, newTasks);
+    set({ tasks: newTasks });
+
     await get().refreshNotes();
     if (activeNoteId === id) {
       const next = notes.find(n => n.id !== id && n.status === 'active');
@@ -356,6 +435,70 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     await get().refreshNotes();
   },
 
+  // ── Task actions ──────────────────────────────────────────────────────────
+
+  syncNoteTasks: async (noteId, noteTitle, content) => {
+    const { userId, tasks } = get();
+    if (!userId) return;
+    const parsed = parseTasksFromContent(noteId, noteTitle, content);
+    const otherTasks = Object.fromEntries(
+      Object.entries(tasks).filter(([, t]) => t.noteId !== noteId)
+    );
+    const merged = mergeTasks(parsed, tasks);
+    const newTasks = { ...otherTasks, ...merged };
+    await saveAllTasks(userId, newTasks);
+    set({ tasks: newTasks });
+  },
+
+  toggleTask: async (taskId) => {
+    const { userId, tasks, activeNoteId, activeContent, notes } = get();
+    if (!userId) return;
+    const task = tasks[taskId];
+    if (!task) return;
+
+    const note = notes.find(n => n.id === task.noteId);
+    if (!note) return;
+
+    const newCompleted = !task.completed;
+
+    // Read content from memory (if active) or from disk
+    const content = activeNoteId === task.noteId ? activeContent : await readNote(note.handle);
+    const newContent = toggleTaskInContent(content, task.lineIndex, newCompleted);
+
+    await saveNote(note.handle, newContent);
+
+    // If toggled note is the open one, update editor content too
+    if (activeNoteId === task.noteId) {
+      set({ activeContent: newContent, isDirty: false });
+    }
+
+    await get().refreshNotes();
+    await get().syncNoteTasks(task.noteId, note.title, newContent);
+  },
+
+  setTaskDueDate: async (taskId, dueDate) => {
+    const { userId, tasks } = get();
+    if (!userId) return;
+    const task = tasks[taskId];
+    if (!task) return;
+    const updated: Task = { ...task, dueDate: dueDate ?? undefined, updatedAt: Date.now() };
+    const newTasks = { ...tasks, [taskId]: updated };
+    await saveAllTasks(userId, newTasks);
+    set({ tasks: newTasks });
+  },
+
+  createTaskNote: async (text = 'New task') => {
+    const { vaultHandle, userId } = get();
+    if (!vaultHandle || !userId) return;
+    await get().createNewNote(text);
+    // Pre-populate with a task line
+    const initialContent = `- [ ] ${text}\n`;
+    get().updateContent(initialContent);
+    await get().saveActiveNote();
+  },
+
+  // ── UI ────────────────────────────────────────────────────────────────────
+
   setActiveSection: (section) => set({ activeSection: section, searchQuery: '' }),
   setSearchQuery: (query) => set({ searchQuery: query }),
 
@@ -385,6 +528,7 @@ export function selectFilteredNotes(state: NotesState): NoteFile[] {
       case 'archive': return n.status === 'archived';
       case 'trash': return n.status === 'trashed';
       case 'tag': return n.status === 'active' && n.tags.includes(activeSection.tag);
+      default: return false;
     }
   });
 
@@ -396,7 +540,6 @@ export function selectFilteredNotes(state: NotesState): NoteFile[] {
     );
   }
 
-  // Favorites pinned to top in 'all' view
   if (activeSection.type === 'all') {
     list = [...list.filter(n => n.isFavorite), ...list.filter(n => !n.isFavorite)];
   }
@@ -410,9 +553,13 @@ export function selectAllTags(state: NotesState): string[] {
 
 export function selectCounts(state: NotesState) {
   return {
-    all: state.notes.filter(n => n.status === 'active').length,
+    all:       state.notes.filter(n => n.status === 'active').length,
     favorites: state.notes.filter(n => n.status === 'active' && n.isFavorite).length,
-    archive: state.notes.filter(n => n.status === 'archived').length,
-    trash: state.notes.filter(n => n.status === 'trashed').length,
+    archive:   state.notes.filter(n => n.status === 'archived').length,
+    trash:     state.notes.filter(n => n.status === 'trashed').length,
   };
+}
+
+export function isTaskSection(section: SidebarSection): boolean {
+  return section.type.startsWith('tasks-');
 }

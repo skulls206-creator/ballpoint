@@ -1,0 +1,238 @@
+Here’s a version of the prompt tailored exactly to that stack and the three‑panel Notesnook‑style UI, but now with integrated tasks.
+
+Prompt for the AI (React + TS + Vite + Tailwind + Zustand + File System + PWA):
+
+Build a modern, local‑first note‑taking and task management web app using the following stack:
+
+React 19 + TypeScript + Vite
+
+Tailwind CSS v4 for styling
+
+Zustand for state management
+
+Lucide React for icons
+
+marked for Markdown → HTML rendering
+
+DOMPurify to sanitize rendered HTML
+
+File System Access API for reading/writing real .md/.txt files on disk
+
+idb-keyval for storing folder handles and metadata in IndexedDB
+
+Express + PostgreSQL backend only for auth (email/password with bcryptjs, JWTs)
+
+PWA: custom service worker, offline caching, push notifications for reminders, Web App Manifest
+
+The app should look like a professional Notesnook‑style three‑panel layout and combine notes + tasks in one interface.
+
+1. Layout: three panels like Notesnook
+Create a full‑height layout with three vertical panels:
+
+Left sidebar (navigation & sections)
+
+Middle panel (lists: notes or tasks)
+
+Right panel (editor / detail)
+
+Use Tailwind CSS for all styling. The UI should be clean and modern, similar to Notesnook / Obsidian.
+​
+​
+
+2. Left sidebar (navigation)
+Implement a left sidebar that includes:
+
+App logo/title at the top.
+
+A Notes section with items:
+
+“All Notes”
+
+“Favorites”
+
+“Trash”
+
+A Tasks section with items:
+
+“Tasks – Inbox”
+
+“Tasks – Today”
+
+“Tasks – Upcoming”
+
+“Completed Tasks”
+
+A Tags section listing tags; clicking a tag filters both notes and tasks.
+
+Clicking any item updates the middle panel to show either a list of notes or tasks, depending on what was selected.
+
+3. Middle panel behavior
+The middle panel is a list view that switches mode:
+
+Notes mode (All/Favorites/Trash or a tag):
+
+Show a scrollable list of notes.
+
+Each row shows: title, short content preview, last updated time, and a favorite icon.
+
+Clicking a note selects it and loads it into the right panel.
+
+Include a “+ New Note” button at the top.
+
+Tasks mode (Inbox/Today/Upcoming/Completed):
+
+Show a list of tasks from across all notes.
+
+Each task row shows: checkbox, task text, optional due date, completion state, and the parent note title.
+
+Clicking a task selects its parent note and scrolls/focuses that task in the right panel.
+
+Include a “+ New Task” button that creates a task and a new note (or attaches to the currently selected note).
+
+Use Zustand to store the current “view mode” and selection, and Tailwind for consistent styling.
+​
+​
+
+4. Right panel: note editor + inline tasks
+The right panel shows the note editor:
+
+A title input at the top.
+
+Below it, a split view or tabbed view:
+
+Left: plain <textarea> bound to the note’s Markdown content.
+
+Right: rendered Markdown preview using marked, sanitized with DOMPurify before injecting into the DOM.
+
+Tasks are inline checkboxes in the Markdown content, using list syntax:
+
+Open task: - [ ] Buy groceries
+
+Completed task: - [x] Call Alice
+
+Behavior requirements:
+
+When the user toggles a checkbox in the UI, update both:
+
+The underlying Task entity in state.
+
+The raw Markdown content in the note (update - [ ] ↔ - [x]).
+
+When the user types a new checklist line with - [ ] Some task, automatically create a Task entity linked to that note.
+
+When a Task entity is updated from the global Tasks view (e.g., due date or completion changed), reflect that change in the note content.
+
+5. Data model and persistence
+Use Zustand for state, with persistence backed by idb-keyval (or a custom storage) for local data.
+
+Create two main entities:
+
+ts
+type Note = {
+  id: string;
+  title: string;
+  content: string; // markdown
+  tags: string[];
+  createdAt: number;
+  updatedAt: number;
+  isFavorited: boolean;
+  isTrashed: boolean;
+  fileHandle?: FileSystemFileHandle; // optional for FS Access
+};
+
+type Task = {
+  id: string;
+  noteId: string;        // foreign key to Note
+  text: string;
+  completed: boolean;
+  dueDate?: number | null;
+  tags?: string[];
+  createdAt: number;
+  updatedAt: number;
+};
+Data rules:
+
+There is always a 1‑to‑1 relationship between each checklist line in a note and a Task object.
+
+On load, parse each note’s Markdown content to build/refresh the Task list.
+
+Keep a consistent sync layer:
+
+Editing Markdown updates tasks.
+
+Editing tasks updates Markdown.
+
+Persist:
+
+Notes and tasks to IndexedDB via idb-keyval.
+
+Folder handles and file handles (for File System Access API) also in IndexedDB so the app can reopen the last folder on restart.
+
+6. File System Access integration
+Allow the user to choose a folder on disk to use as the “notes folder”.
+
+Read/write .md / .txt files directly to that folder using the File System Access API.
+​
+
+When saving notes, keep the Note content in sync with its file on disk.
+
+Store the folder handle using idb-keyval so the app can re‑request access next time.
+
+7. Auth and backend
+Implement minimal auth (email/password) with bcryptjs hashing and JWTs on an Express + PostgreSQL backend.
+
+The backend only stores user accounts and issues JWTs; never send notes or tasks to the backend.
+
+Store the JWT in localStorage and attach it to any auth‑required requests.
+
+The app must fully function offline once the user is logged in; all notes and tasks remain local.
+
+8. Task views logic
+Implement derived views with basic selectors:
+
+Tasks – Inbox: all open tasks with no dueDate.
+
+Tasks – Today: open tasks whose dueDate is today or earlier.
+
+Tasks – Upcoming: open tasks with future dueDate.
+
+Completed Tasks: all tasks with completed = true, sorted by updatedAt descending.
+
+Each view:
+
+Allows toggling completion.
+
+Allows editing the due date.
+
+Clicking a task jumps to the note and scrolls to the task line.
+
+9. PWA and notifications
+Configure the app as a PWA with a manifest and custom service worker for offline caching.
+​
+
+Support notifications for task reminders using the Notifications API + Push API via the service worker.
+
+For now, reminders can be simple: store a dueDate and show a notification when the time is reached and the task is not completed.
+
+10. Code organization
+Use React components for:
+
+Sidebar (left panel)
+
+ListPanel (middle)
+
+EditorPanel (right)
+
+Use Zustand slices for:
+
+notesStore (CRUD, parsing tasks from content, FS integration)
+
+tasksStore (CRUD, derived views like Today/Upcoming, sync with notes)
+
+uiStore (current view, selected note ID, selected task ID)
+
+Add clear TypeScript types and comments to make the app easy to extend later.
+
+End result: a single‑page React app that looks like a professional three‑panel Notesnook‑style interface, with local‑first notes and tasks sharing the same storage, plus optional reminders via PWA notifications.
+
+If you want, I can now write a tighter “short prompt” version you can paste into Replit’s AI that just says “take my existing app that already uses this stack and evolve it into this notes+tasks design” instead of starting from scratch.

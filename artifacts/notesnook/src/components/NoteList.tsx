@@ -4,7 +4,8 @@ import {
   Star, Trash2, Edit2, Archive, RotateCcw,
   Trash, FileText, Bell, Copy, ExternalLink,
 } from 'lucide-react';
-import { useNotesStore, selectFilteredNotes } from '../lib/store';
+import { useNotesStore, selectFilteredNotes, isTaskSection } from '../lib/store';
+import { TaskList } from './TaskList';
 import { cn } from '../lib/utils';
 
 // ─── Context Menu ─────────────────────────────────────────────────────────────
@@ -132,9 +133,10 @@ function ContextMenu({
 
 // ─── Note List ────────────────────────────────────────────────────────────────
 export function NoteList() {
+  // All hooks must be called unconditionally (React rules)
+  const activeSection = useNotesStore(s => s.activeSection);
   const activeNoteId  = useNotesStore(s => s.activeNoteId);
   const searchQuery   = useNotesStore(s => s.searchQuery);
-  const activeSection = useNotesStore(s => s.activeSection);
   const notes         = useNotesStore(s => s.notes);
 
   const selectNote            = useNotesStore(s => s.selectNote);
@@ -147,15 +149,17 @@ export function NoteList() {
   const renameNote            = useNotesStore(s => s.renameNote);
   const createNewNote         = useNotesStore(s => s.createNewNote);
 
-  const filteredNotes = useMemo(
-    () => selectFilteredNotes({ notes, activeSection, searchQuery } as any),
-    [notes, activeSection, searchQuery]
-  );
-
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
   const renameRef = useRef<HTMLInputElement>(null);
+
+  const filteredNotes = useMemo(
+    () => isTaskSection(activeSection)
+      ? []
+      : selectFilteredNotes({ notes, activeSection, searchQuery } as any),
+    [notes, activeSection, searchQuery]
+  );
 
   useEffect(() => { if (renamingId) renameRef.current?.focus(); }, [renamingId]);
 
@@ -166,6 +170,9 @@ export function NoteList() {
   }, []);
 
   const closeCtx = useCallback(() => setCtxMenu(null), []);
+
+  // All hooks declared — now safe to branch
+  if (isTaskSection(activeSection)) return <TaskList />;
 
   const inTrash   = activeSection.type === 'trash';
   const inArchive = activeSection.type === 'archive';
