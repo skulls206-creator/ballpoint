@@ -514,8 +514,8 @@ function AttachmentStrip({
             <FileIcon size={10} className="text-muted-foreground/50 shrink-0" />
             <span className="truncate flex-1 min-w-0" title={info.name}>{info.name}</span>
             <span className="text-[10px] text-muted-foreground/40 shrink-0">{formatBytes(info.size)}</span>
-            {encryptionKey && (
-              <span title="Encrypted" className="text-[9px] text-green-500 shrink-0">🔒</span>
+            {info.encrypted && (
+              <span title="Encrypted on disk" className="text-[9px] text-green-500 shrink-0">🔒</span>
             )}
             <button
               onClick={() => handleDownload(info)}

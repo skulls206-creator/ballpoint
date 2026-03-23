@@ -6,6 +6,7 @@ export type AttachmentInfo = {
   name: string;
   size: number;
   mime: string;
+  encrypted: boolean; // actual on-disk state, checked via magic header
 };
 
 function mimeFromName(name: string): string {
@@ -27,9 +28,14 @@ async function getDir(
   noteId: string
 ): Promise<FileSystemDirectoryHandle> {
   const root = await vault.getDirectoryHandle(ATTACH_ROOT, { create: true });
-  // Use a safe folder name derived from the noteId (strip illegal chars)
   const folderName = noteId.replace(/[^a-zA-Z0-9_-]/g, '_');
   return root.getDirectoryHandle(folderName, { create: true });
+}
+
+/** Read just the first 16 bytes to check encryption magic header. */
+async function peekBytes(file: File): Promise<Uint8Array> {
+  const slice = file.slice(0, 16);
+  return new Uint8Array(await slice.arrayBuffer());
 }
 
 export async function writeAttachment(
@@ -73,7 +79,13 @@ export async function listAttachments(
     for await (const [name, handle] of (dir as any).entries()) {
       if (handle.kind === 'file') {
         const file = await (handle as FileSystemFileHandle).getFile();
-        infos.push({ name, size: file.size, mime: mimeFromName(name) });
+        const header = await peekBytes(file);
+        infos.push({
+          name,
+          size: file.size,
+          mime: mimeFromName(name),
+          encrypted: isEncryptedBytes(header),
+        });
       }
     }
     return infos.sort((a, b) => a.name.localeCompare(b.name));
@@ -89,6 +101,47 @@ export async function deleteAttachment(
 ): Promise<void> {
   const dir = await getDir(vault, noteId);
   await dir.removeEntry(filename);
+}
+
+/**
+ * Migrate all attachments for a note when encryption state changes.
+ * fromKey=null means files are currently plain → encrypt with toKey.
+ * toKey=null means files are currently encrypted → decrypt to plain.
+ */
+export async function migrateNoteAttachments(
+  vault: FileSystemDirectoryHandle,
+  noteId: string,
+  fromKey: CryptoKey | null,
+  toKey: CryptoKey | null
+): Promise<void> {
+  try {
+    const dir = await getDir(vault, noteId);
+    for await (const [name, handle] of (dir as any).entries()) {
+      if (handle.kind !== 'file') continue;
+      try {
+        const fh = handle as FileSystemFileHandle;
+        const file = await fh.getFile();
+        const data = new Uint8Array(await file.arrayBuffer());
+        const alreadyEncrypted = isEncryptedBytes(data);
+
+        let finalBytes: Uint8Array;
+        if (toKey && !alreadyEncrypted) {
+          // Encrypting: file is plain, encrypt it
+          finalBytes = await encryptBytes(data, toKey);
+        } else if (!toKey && alreadyEncrypted && fromKey) {
+          // Decrypting: file is encrypted, decrypt it
+          finalBytes = await decryptBytes(data, fromKey);
+        } else {
+          // Already in the right state
+          continue;
+        }
+
+        const writable = await (fh as any).createWritable();
+        await writable.write(finalBytes);
+        await writable.close();
+      } catch { /* skip individual file errors */ }
+    }
+  } catch { /* folder may not exist */ }
 }
 
 export function isImageMime(mime: string): boolean {
