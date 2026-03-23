@@ -2,7 +2,7 @@ import { useMemo, useState, useRef, useEffect } from 'react';
 import { format, isToday, isPast, isTomorrow } from 'date-fns';
 import {
   CheckSquare, Square, CalendarDays, FileText,
-  Plus, ListTodo, Calendar, Clock, CheckCheck,
+  Plus, ListTodo, Calendar, Clock, CheckCheck, Menu,
 } from 'lucide-react';
 import { useNotesStore } from '../lib/store';
 import { selectTasksByView, selectTaskCounts, Task, TaskView } from '../lib/tasks';
@@ -149,7 +149,7 @@ function TaskRow({ task }: { task: Task }) {
 }
 
 // ─── Task List ────────────────────────────────────────────────────────────────
-export function TaskList() {
+export function TaskList({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
   const activeSection  = useNotesStore(s => s.activeSection);
   const tasks          = useNotesStore(s => s.tasks);
   const vaultHandle    = useNotesStore(s => s.vaultHandle);
@@ -175,13 +175,21 @@ export function TaskList() {
   const count = counts[view];
 
   return (
-    <div className="w-[240px] shrink-0 flex flex-col h-full border-r border-border bg-card/40 overflow-hidden">
+    <div className="w-full md:w-[240px] shrink-0 flex flex-col h-full border-r border-border bg-card/40 overflow-hidden">
       {/* Header */}
       <div className="px-3 py-2.5 border-b border-border/60 shrink-0">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-1.5 text-foreground/60">
+          <div className="flex items-center gap-2 text-foreground/60">
+            {/* Hamburger — mobile only */}
+            <button
+              onClick={onOpenSidebar}
+              className="md:hidden w-8 h-8 flex items-center justify-center rounded-lg text-foreground/50 hover:text-foreground hover:bg-muted transition-colors -ml-1"
+              title="Menu"
+            >
+              <Menu size={18} />
+            </button>
             <span className="text-primary/70">{meta.icon}</span>
-            <span className="text-[11px] font-semibold uppercase tracking-wider">{meta.label}</span>
+            <span className="text-[12px] md:text-[11px] font-semibold uppercase tracking-wider">{meta.label}</span>
           </div>
           <span className="text-[10px] text-muted-foreground tabular-nums">{count}</span>
         </div>

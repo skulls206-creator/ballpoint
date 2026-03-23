@@ -8,7 +8,7 @@ import {
   Bold, Italic, Strikethrough, Code, Code2, Link2,
   Heading1, Heading2, Heading3,
   List, ListOrdered, ListChecks, Quote, Minus,
-  Image, History, Clock, ChevronRight,
+  Image, History, Clock, ChevronRight, ChevronLeft,
   Paperclip, Download, FileText as FileIcon, Loader2,
 } from 'lucide-react';
 import { useNotesStore } from '../lib/store';
@@ -696,7 +696,7 @@ function ReminderButton({ noteId, hasReminder, reminderTime, reminderStatus }: {
 }
 
 // ─── Main Editor ─────────────────────────────────────────────────────────────
-export function Editor() {
+export function Editor({ onBack }: { onBack?: () => void }) {
   // Stable primitive selectors — each returns a primitive or stable reference
   const activeNoteId  = useNotesStore(s => s.activeNoteId);
   const notes         = useNotesStore(s => s.notes);
@@ -851,6 +851,16 @@ export function Editor() {
       <header className="shrink-0 border-b border-border bg-card/20 px-4 pt-3 pb-2 space-y-1.5">
         {/* Title row */}
         <div className="flex items-center gap-2 min-w-0">
+          {/* Back button — mobile only */}
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="md:hidden shrink-0 w-8 h-8 flex items-center justify-center rounded-lg text-muted-foreground hover:text-foreground hover:bg-muted transition-colors -ml-1"
+              title="Back to notes"
+            >
+              <ChevronLeft size={20} />
+            </button>
+          )}
           <button
             onClick={() => toggleFavorite(activeNote.id)}
             className={cn("shrink-0 transition-colors", activeNote.isFavorite ? "text-primary" : "text-muted-foreground/25 hover:text-muted-foreground")}

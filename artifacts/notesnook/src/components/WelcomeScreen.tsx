@@ -1,14 +1,25 @@
-import { FolderOpen, HardDrive, Shield, Zap, Lock } from 'lucide-react';
+import { FolderOpen, HardDrive, Shield, Zap, Lock, Menu } from 'lucide-react';
 import { useNotesStore } from '../lib/store';
 import { useAuth } from '../lib/authContext';
 import { isFileSystemSupported } from '../lib/fileSystem';
 
-export function WelcomeScreen() {
+export function WelcomeScreen({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
   const { openNewVault } = useNotesStore();
   const { user } = useAuth();
 
   return (
-    <div className="flex-1 flex flex-col items-center justify-center bg-background px-6 py-12">
+    <div className="flex-1 flex flex-col bg-background">
+      {/* Mobile top bar */}
+      <div className="md:hidden flex items-center h-12 px-4 border-b border-border shrink-0">
+        <button
+          onClick={onOpenSidebar}
+          className="w-9 h-9 flex items-center justify-center rounded-lg text-foreground/60 hover:text-foreground hover:bg-muted transition-colors"
+        >
+          <Menu size={20} />
+        </button>
+        <span className="ml-2 text-sm font-semibold text-foreground">Ballpoint.one</span>
+      </div>
+      <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
       <div className="max-w-sm w-full text-center space-y-6">
         {/* Icon */}
         <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20">
@@ -61,6 +72,7 @@ export function WelcomeScreen() {
             </div>
           ))}
         </div>
+      </div>
       </div>
     </div>
   );

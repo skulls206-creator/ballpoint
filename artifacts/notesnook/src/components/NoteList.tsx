@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import {
   Star, Trash2, Edit2, Archive, RotateCcw,
-  Trash, FileText, Bell, Copy, ExternalLink,
+  Trash, FileText, Bell, Copy, ExternalLink, Menu,
 } from 'lucide-react';
 import { useNotesStore, selectFilteredNotes, isTaskSection } from '../lib/store';
 import { TaskList } from './TaskList';
@@ -132,7 +132,7 @@ function ContextMenu({
 }
 
 // ─── Note List ────────────────────────────────────────────────────────────────
-export function NoteList() {
+export function NoteList({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
   // All hooks must be called unconditionally (React rules)
   const activeSection = useNotesStore(s => s.activeSection);
   const activeNoteId  = useNotesStore(s => s.activeNoteId);
@@ -172,7 +172,7 @@ export function NoteList() {
   const closeCtx = useCallback(() => setCtxMenu(null), []);
 
   // All hooks declared — now safe to branch
-  if (isTaskSection(activeSection)) return <TaskList />;
+  if (isTaskSection(activeSection)) return <TaskList onOpenSidebar={onOpenSidebar} />;
 
   const inTrash   = activeSection.type === 'trash';
   const inArchive = activeSection.type === 'archive';
@@ -187,11 +187,21 @@ export function NoteList() {
   const ctxNote = ctxMenu ? notes.find(n => n.id === ctxMenu.noteId) : null;
 
   return (
-    <div className="w-[240px] shrink-0 flex flex-col h-full border-r border-border bg-card/40 overflow-hidden">
+    <div className="w-full md:w-[240px] shrink-0 flex flex-col h-full border-r border-border bg-card/40 overflow-hidden">
       {/* Header */}
-      <div className="px-3 py-2 border-b border-border/60 space-y-1.5 shrink-0">
+      <div className="px-3 py-2.5 md:py-2 border-b border-border/60 space-y-1.5 shrink-0">
         <div className="flex items-center justify-between">
-          <span className="text-[11px] font-semibold text-foreground/60 uppercase tracking-wider">{sectionTitle}</span>
+          <div className="flex items-center gap-2">
+            {/* Hamburger — mobile only */}
+            <button
+              onClick={onOpenSidebar}
+              className="md:hidden w-8 h-8 flex items-center justify-center rounded-lg text-foreground/50 hover:text-foreground hover:bg-muted transition-colors -ml-1"
+              title="Menu"
+            >
+              <Menu size={18} />
+            </button>
+            <span className="text-[12px] md:text-[11px] font-semibold text-foreground/60 uppercase tracking-wider">{sectionTitle}</span>
+          </div>
           <span className="text-[10px] text-muted-foreground tabular-nums">{filteredNotes.length}</span>
         </div>
         <div className="relative">
@@ -234,7 +244,7 @@ export function NoteList() {
                 onClick={() => { if (!inTrash && !isRenaming) selectNote(note.id); }}
                 onContextMenu={e => handleContextMenu(e, note.id)}
                 className={cn(
-                  "group relative px-3 py-2 transition-colors border-b border-border/30 select-none",
+                  "group relative px-3 py-3 md:py-2 transition-colors border-b border-border/30 select-none",
                   isActive
                     ? "bg-accent/60 border-l-2 border-l-primary"
                     : !inTrash ? "hover:bg-muted/50 cursor-pointer" : "cursor-default"

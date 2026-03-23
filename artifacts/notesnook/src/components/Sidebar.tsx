@@ -4,7 +4,7 @@ import {
   Plus, FolderOpen, FolderX, Sun, Moon, Settings, Zap, LogOut, Search,
   Download, CheckCircle2, ListTodo, Clock, Calendar, CheckCheck,
   FilePlus, RotateCcw, Trash, TagIcon,
-  Lock, LockOpen, ShieldCheck,
+  Lock, LockOpen, ShieldCheck, X,
 } from 'lucide-react';
 import { useNotesStore, SidebarSection } from '../lib/store';
 import { useAuth } from '../lib/authContext';
@@ -26,7 +26,10 @@ const ACCENT_COLORS: { id: AccentColor; label: string; hsl: string }[] = [
   { id: 'pink',   label: 'Pink',   hsl: '315 85% 60%' },
 ];
 
-export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => void }) {
+export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
+  onOpenCommandPalette: () => void;
+  onMobileClose?: () => void;
+}) {
   const { user, logout } = useAuth();
   const { canInstall, isInstalled, install } = usePWAInstall();
 
@@ -190,7 +193,7 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
 
   return (
     <>
-    <aside className="w-[200px] shrink-0 flex flex-col h-full bg-sidebar border-r border-sidebar-border select-none overflow-hidden">
+    <aside className="w-72 md:w-[200px] shrink-0 flex flex-col h-full bg-sidebar border-r border-sidebar-border select-none overflow-hidden">
       {/* Branding */}
       <div className="flex items-center gap-1.5 px-3 py-2.5 border-b border-sidebar-border">
         <div className="w-5 h-5 rounded-md bg-primary/15 flex items-center justify-center shrink-0">
@@ -199,14 +202,21 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
         <span className="font-semibold text-[12px] text-sidebar-foreground tracking-tight">Ballpoint.one</span>
         <div className="ml-auto flex items-center gap-0.5">
           <button onClick={toggleTheme} title="Toggle theme"
-            className="w-5 h-5 rounded flex items-center justify-center text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors">
-            {theme === 'dark' ? <Sun size={11} /> : <Moon size={11} />}
+            className="w-7 h-7 md:w-5 md:h-5 rounded flex items-center justify-center text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors">
+            {theme === 'dark' ? <Sun size={13} className="md:w-[11px] md:h-[11px]" /> : <Moon size={13} className="md:w-[11px] md:h-[11px]" />}
           </button>
           <button onClick={() => setSettingsOpen(p => !p)} title="Settings"
-            className={cn("w-5 h-5 rounded flex items-center justify-center text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors",
+            className={cn("w-7 h-7 md:w-5 md:h-5 rounded flex items-center justify-center text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors",
               settingsOpen && "bg-sidebar-accent text-sidebar-foreground")}>
-            <Settings size={11} />
+            <Settings size={13} className="md:w-[11px] md:h-[11px]" />
           </button>
+          {/* Close button — mobile drawer only */}
+          {onMobileClose && (
+            <button onClick={onMobileClose} title="Close menu"
+              className="md:hidden w-7 h-7 rounded flex items-center justify-center text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors ml-1">
+              <X size={16} />
+            </button>
+          )}
         </div>
       </div>
 
@@ -387,13 +397,13 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
       {/* New note + search */}
       {vaultHandle && (
         <div className="px-2 py-2 border-b border-sidebar-border flex gap-1">
-          <button onClick={() => createNewNote()}
-            className="flex-1 flex items-center justify-center gap-1 px-2 py-1 rounded-md bg-primary text-primary-foreground text-[11px] font-medium hover:opacity-90 active:opacity-80 transition-opacity">
-            <Plus size={11} /> New Note
+          <button onClick={() => { createNewNote(); onMobileClose?.(); }}
+            className="flex-1 flex items-center justify-center gap-1 px-2 py-2 md:py-1 rounded-md bg-primary text-primary-foreground text-[13px] md:text-[11px] font-medium hover:opacity-90 active:opacity-80 transition-opacity">
+            <Plus size={13} className="md:w-[11px] md:h-[11px]" /> New Note
           </button>
           <button onClick={onOpenCommandPalette} title="Search (⌘K)"
-            className="w-7 flex items-center justify-center rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
-            <Search size={11} />
+            className="w-9 md:w-7 flex items-center justify-center rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+            <Search size={14} className="md:w-[11px] md:h-[11px]" />
           </button>
         </div>
       )}
@@ -406,9 +416,9 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
           const active = isSectionActive(item.id);
           return (
             <button key={item.id.type}
-              onClick={() => setActiveSection(item.id)}
+              onClick={() => { setActiveSection(item.id); onMobileClose?.(); }}
               onContextMenu={e => openCtx(e, item.ctx)}
-              className={cn("w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-[12px] transition-colors",
+              className={cn("w-full flex items-center gap-1.5 px-2 py-2.5 md:py-1 rounded-md text-[13px] md:text-[12px] transition-colors",
                 active
                   ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
                   : "text-sidebar-foreground/55 hover:text-sidebar-foreground hover:bg-sidebar-accent/50")}>
@@ -429,9 +439,9 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
           const active = isSectionActive(item.id);
           return (
             <button key={item.id.type}
-              onClick={() => setActiveSection(item.id)}
+              onClick={() => { setActiveSection(item.id); onMobileClose?.(); }}
               onContextMenu={e => openCtx(e, item.ctx)}
-              className={cn("w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-[12px] transition-colors",
+              className={cn("w-full flex items-center gap-1.5 px-2 py-2.5 md:py-1 rounded-md text-[13px] md:text-[12px] transition-colors",
                 active
                   ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
                   : "text-sidebar-foreground/55 hover:text-sidebar-foreground hover:bg-sidebar-accent/50")}>
@@ -470,9 +480,9 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
                   ];
                   return (
                     <button key={tag}
-                      onClick={() => setActiveSection(tagSection)}
+                      onClick={() => { setActiveSection(tagSection); onMobileClose?.(); }}
                       onContextMenu={e => openCtx(e, tagCtx)}
-                      className={cn("w-full flex items-center gap-1.5 pl-3.5 pr-2 py-1 rounded-md text-[11px] transition-colors",
+                      className={cn("w-full flex items-center gap-1.5 pl-3.5 pr-2 py-2 md:py-1 rounded-md text-[12px] md:text-[11px] transition-colors",
                         active
                           ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
                           : "text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/50")}>
