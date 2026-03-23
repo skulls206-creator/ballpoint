@@ -1,17 +1,18 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
-import { format } from 'date-fns';
+import { format, formatDistanceToNow } from 'date-fns';
 import {
   Save, Eye, EyeOff, Star, Archive, Trash2, RotateCcw,
   Bell, BellOff, Tag, X, Check, FileText,
   Bold, Italic, Strikethrough, Code, Code2, Link2,
   Heading1, Heading2, Heading3,
   List, ListOrdered, ListChecks, Quote, Minus,
-  Image,
+  Image, History, Clock, ChevronRight,
 } from 'lucide-react';
 import { useNotesStore } from '../lib/store';
 import { cn } from '../lib/utils';
+import { loadVersions, NoteVersion } from '../lib/versions';
 
 // ─── Markdown Toolbar ─────────────────────────────────────────────────────────
 type WrapStyle = { prefix: string; suffix?: string; block?: boolean; line?: boolean; placeholder?: string };
@@ -180,6 +181,210 @@ function MarkdownToolbar({
   );
 }
 
+// ─── Version History Panel ───────────────────────────────────────────────────
+function VersionHistory({
+  noteId,
+  userId,
+  onRestore,
+  onClose,
+}: {
+  noteId: string;
+  userId: number;
+  onRestore: (content: string) => void;
+  onClose: () => void;
+}) {
+  const [versions, setVersions]     = useState<NoteVersion[]>([]);
+  const [preview,  setPreview]      = useState<NoteVersion | null>(null);
+  const [loading,  setLoading]      = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    loadVersions(userId, noteId)
+      .then(v => { setVersions([...v].reverse()); setLoading(false); })
+      .catch(() => setLoading(false));
+  }, [userId, noteId]);
+
+  const previewHtml = useMemo(() => {
+    if (!preview) return '';
+    const raw = marked(preview.content);
+    return DOMPurify.sanitize(typeof raw === 'string' ? raw : String(raw));
+  }, [preview]);
+
+  return (
+    <div className="w-64 shrink-0 flex flex-col border-l border-border bg-card/20 h-full overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between px-3 py-2 border-b border-border shrink-0">
+        <div className="flex items-center gap-1.5 text-[11px] font-semibold text-foreground">
+          <History size={12} className="text-primary" /> Version History
+        </div>
+        <button onClick={onClose} className="text-muted-foreground/50 hover:text-foreground transition-colors">
+          <X size={12} />
+        </button>
+      </div>
+
+      {preview ? (
+        /* Preview pane */
+        <div className="flex-1 flex flex-col overflow-hidden">
+          <div className="flex items-center gap-1.5 px-3 py-1.5 border-b border-border shrink-0 bg-primary/5">
+            <Clock size={10} className="text-primary shrink-0" />
+            <span className="text-[10px] text-muted-foreground flex-1 truncate">
+              {format(new Date(preview.timestamp), 'MMM d, yyyy · h:mm a')}
+            </span>
+            <button
+              onClick={() => { onRestore(preview.content); onClose(); }}
+              className="shrink-0 px-2 py-0.5 rounded bg-primary text-primary-foreground text-[10px] font-medium hover:bg-primary/90 transition-colors"
+            >
+              Restore
+            </button>
+            <button onClick={() => setPreview(null)} className="shrink-0 text-muted-foreground/50 hover:text-foreground transition-colors ml-0.5">
+              <X size={10} />
+            </button>
+          </div>
+          <div
+            className="flex-1 overflow-y-auto px-3 py-3 prose dark:prose-invert prose-xs max-w-none text-[11px] prose-headings:text-[13px] prose-p:my-1 prose-headings:my-1"
+            dangerouslySetInnerHTML={{ __html: previewHtml }}
+          />
+        </div>
+      ) : (
+        /* Version list */
+        <div className="flex-1 overflow-y-auto py-1">
+          {loading && (
+            <p className="text-[11px] text-muted-foreground/40 text-center py-6">Loading…</p>
+          )}
+          {!loading && versions.length === 0 && (
+            <div className="flex flex-col items-center gap-2 py-8 px-4 text-center">
+              <Clock size={24} className="text-muted-foreground/20" strokeWidth={1.5} />
+              <p className="text-[11px] text-muted-foreground/50">No versions yet — versions are saved automatically each time you save the note.</p>
+            </div>
+          )}
+          {versions.map((v, i) => (
+            <button
+              key={v.timestamp}
+              onClick={() => setPreview(v)}
+              className="w-full flex items-center gap-2 px-3 py-2 hover:bg-muted/50 transition-colors text-left group"
+            >
+              <Clock size={10} className="text-muted-foreground/30 shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] text-foreground truncate">
+                  {i === 0 ? 'Latest save' : formatDistanceToNow(new Date(v.timestamp), { addSuffix: true })}
+                </p>
+                <p className="text-[10px] text-muted-foreground/50 truncate">
+                  {format(new Date(v.timestamp), 'MMM d · h:mm a')}
+                </p>
+              </div>
+              <ChevronRight size={10} className="text-muted-foreground/30 group-hover:text-muted-foreground transition-colors shrink-0" />
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── Textarea Right-click Context Menu ───────────────────────────────────────
+type CtxPos = { x: number; y: number };
+
+function TextareaContextMenu({
+  pos,
+  onClose,
+  textareaRef,
+  onChange,
+}: {
+  pos: CtxPos;
+  onClose: () => void;
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  onChange: (val: string) => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose();
+    };
+    window.addEventListener('mousedown', handler);
+    return () => window.removeEventListener('mousedown', handler);
+  }, [onClose]);
+
+  // Adjust so menu never goes off-screen
+  const [adjusted, setAdjusted] = useState(pos);
+  useEffect(() => {
+    if (!ref.current) return;
+    const { innerWidth: W, innerHeight: H } = window;
+    const { offsetWidth: w, offsetHeight: h } = ref.current;
+    setAdjusted({
+      x: Math.min(pos.x, W - w - 8),
+      y: Math.min(pos.y, H - h - 8),
+    });
+  }, [pos]);
+
+  const groups: { label?: string; items: { icon: React.ReactNode; label: string; action: () => void }[] }[] = [
+    {
+      items: [
+        { icon: <Bold size={11} />,          label: 'Bold',           action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '**' }, onChange); } },
+        { icon: <Italic size={11} />,        label: 'Italic',         action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '_' }, onChange); } },
+        { icon: <Strikethrough size={11} />, label: 'Strikethrough',  action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '~~' }, onChange); } },
+        { icon: <Code size={11} />,          label: 'Inline code',    action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '`', suffix: '`', placeholder: 'code' }, onChange); } },
+      ],
+    },
+    {
+      label: 'Headings',
+      items: [
+        { icon: <Heading1 size={11} />, label: 'Heading 1', action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '# ', line: true }, onChange); } },
+        { icon: <Heading2 size={11} />, label: 'Heading 2', action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '## ', line: true }, onChange); } },
+        { icon: <Heading3 size={11} />, label: 'Heading 3', action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '### ', line: true }, onChange); } },
+      ],
+    },
+    {
+      label: 'Lists',
+      items: [
+        { icon: <List size={11} />,        label: 'Bullet list',   action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '- ', line: true }, onChange); } },
+        { icon: <ListOrdered size={11} />, label: 'Numbered list', action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '1. ', line: true }, onChange); } },
+        { icon: <ListChecks size={11} />,  label: 'Task list',     action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '- [ ] ', line: true }, onChange); } },
+      ],
+    },
+    {
+      label: 'Insert',
+      items: [
+        { icon: <Quote size={11} />,  label: 'Blockquote',     action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '> ', line: true }, onChange); } },
+        { icon: <Code2 size={11} />,  label: 'Code block',     action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '```', suffix: '```', block: true, placeholder: 'code' }, onChange); } },
+        { icon: <Link2 size={11} />,  label: 'Insert link',    action: () => { const ta = textareaRef.current; if (ta) insertLink(ta, onChange); } },
+        { icon: <Minus size={11} />,  label: 'Horizontal rule', action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '\n---\n', suffix: '', placeholder: '' }, onChange); } },
+      ],
+    },
+  ];
+
+  const run = (action: () => void) => { onClose(); action(); };
+
+  return (
+    <div
+      ref={ref}
+      style={{ position: 'fixed', top: adjusted.y, left: adjusted.x, zIndex: 9999 }}
+      className="min-w-[180px] bg-popover border border-border rounded-lg shadow-xl py-1 animate-in fade-in zoom-in-95 duration-100"
+    >
+      {groups.map((group, gi) => (
+        <div key={gi}>
+          {gi > 0 && <div className="my-1 border-t border-border" />}
+          {group.label && (
+            <p className="px-3 py-0.5 text-[9px] uppercase tracking-widest text-muted-foreground/40 font-semibold">
+              {group.label}
+            </p>
+          )}
+          {group.items.map((item, ii) => (
+            <button
+              key={ii}
+              onMouseDown={e => { e.preventDefault(); run(item.action); }}
+              className="w-full flex items-center gap-2.5 px-3 py-1.5 text-[12px] text-popover-foreground hover:bg-muted transition-colors text-left"
+            >
+              <span className="text-muted-foreground/60">{item.icon}</span>
+              {item.label}
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // ─── Tag Input ──────────────────────────────────────────────────────────────
 function TagInput({ tags, onChange }: { tags: string[]; onChange: (tags: string[]) => void }) {
   const [input, setInput] = useState('');
@@ -340,9 +545,13 @@ export function Editor() {
   const restoreNote    = useNotesStore(s => s.restoreNote);
   const toggleTask     = useNotesStore(s => s.toggleTask);
 
-  const [showPreview, setShowPreview] = useState(false);
-  const [titleValue, setTitleValue]   = useState('');
-  const titleRef    = useRef<HTMLInputElement>(null);
+  const userId = useNotesStore(s => s.userId);
+
+  const [showPreview,  setShowPreview]  = useState(false);
+  const [showHistory,  setShowHistory]  = useState(false);
+  const [ctxMenu,      setCtxMenu]      = useState<CtxPos | null>(null);
+  const [titleValue,   setTitleValue]   = useState('');
+  const titleRef     = useRef<HTMLInputElement>(null);
   const textareaRef  = useRef<HTMLTextAreaElement>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
@@ -487,6 +696,12 @@ export function Editor() {
               </button>
             )}
 
+            <button onClick={() => setShowHistory(p => !p)} title="Version history"
+              className={cn("h-6 w-6 rounded flex items-center justify-center transition-colors border border-border",
+                showHistory ? "bg-muted text-foreground" : "text-muted-foreground/40 hover:text-foreground hover:bg-muted")}>
+              <History size={11} />
+            </button>
+
             <button onClick={() => setShowPreview(p => !p)} title="Toggle preview"
               className={cn("h-6 w-6 rounded flex items-center justify-center transition-colors border border-border",
                 showPreview ? "bg-muted text-foreground" : "text-muted-foreground/40 hover:text-foreground hover:bg-muted")}>
@@ -546,8 +761,9 @@ export function Editor() {
         </div>
       )}
 
-      {/* ── Editor / Preview ── */}
+      {/* ── Editor / Preview / History ── */}
       <div className="flex-1 flex overflow-hidden">
+        {/* Writing area (hidden when preview-only on small screens) */}
         <div className={cn("flex-1 flex flex-col min-w-0", showPreview && "hidden lg:flex lg:w-1/2 lg:flex-none")}>
           <textarea
             ref={textareaRef}
@@ -556,6 +772,7 @@ export function Editor() {
             disabled={isReadOnly}
             placeholder={isReadOnly ? "(Note is in trash — restore to edit)" : "Start writing in Markdown..."}
             spellCheck={true}
+            onContextMenu={!isReadOnly ? e => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); } : undefined}
             className="flex-1 w-full bg-transparent px-6 py-4 resize-none outline-none font-mono text-[13px] leading-relaxed text-foreground placeholder:text-muted-foreground/30 disabled:opacity-50"
           />
         </div>
@@ -573,7 +790,27 @@ export function Editor() {
             )}
           </div>
         )}
+
+        {/* Version history side panel */}
+        {showHistory && userId && (
+          <VersionHistory
+            noteId={activeNoteId}
+            userId={userId}
+            onRestore={content => { handleContentChange(content); saveActiveNote(); }}
+            onClose={() => setShowHistory(false)}
+          />
+        )}
       </div>
+
+      {/* Textarea right-click context menu */}
+      {ctxMenu && (
+        <TextareaContextMenu
+          pos={ctxMenu}
+          onClose={() => setCtxMenu(null)}
+          textareaRef={textareaRef}
+          onChange={handleContentChange}
+        />
+      )}
     </div>
   );
 }

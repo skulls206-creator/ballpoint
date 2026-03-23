@@ -16,6 +16,7 @@ import {
   VAULT_KEY_FILENAME, isEncrypted, encryptContent, decryptContent,
   createKeyFileContent, openKeyFile,
 } from './crypto';
+import { saveVersion } from './versions';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -302,14 +303,16 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   updateContent: (content) => set({ activeContent: content, isDirty: true }),
 
   saveActiveNote: async () => {
-    const { activeNoteId, vaultHandle, notes, activeContent, encryptionKey } = get();
-    if (!activeNoteId || !vaultHandle) return;
+    const { activeNoteId, vaultHandle, notes, activeContent, encryptionKey, userId } = get();
+    if (!activeNoteId || !vaultHandle || !userId) return;
     const note = notes.find(n => n.id === activeNoteId);
     if (note) {
       const contentToSave = encryptionKey
         ? await encryptContent(activeContent, encryptionKey)
         : activeContent;
       await saveNote(note.handle, contentToSave);
+      // Snapshot version (plain content, not the encrypted blob)
+      saveVersion(userId, activeNoteId, activeContent).catch(() => {});
       set({ isDirty: false });
       await get().refreshNotes();
       get().syncNoteTasks(activeNoteId, note.title, activeContent).catch(() => {});
