@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { FileText, Star, Archive, Search } from 'lucide-react';
 import { useNotesStore } from '../lib/store';
 import {
@@ -7,7 +7,15 @@ import {
 } from './ui/command';
 
 export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
-  const { notes, selectNote, setActiveSection } = useNotesStore();
+  // Use stable primitive selectors — never return new array references from Zustand
+  const notes          = useNotesStore(s => s.notes);
+  const selectNote     = useNotesStore(s => s.selectNote);
+  const setActiveSection = useNotesStore(s => s.setActiveSection);
+
+  // Derive filtered lists locally
+  const activeNotes   = useMemo(() => notes.filter(n => n.status === 'active'), [notes]);
+  const favoriteNotes = useMemo(() => notes.filter(n => n.status === 'active' && n.isFavorite), [notes]);
+  const archivedNotes = useMemo(() => notes.filter(n => n.status === 'archived'), [notes]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -18,10 +26,6 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
   }, [onOpenChange]);
 
   const run = (fn: () => void) => { onOpenChange(false); fn(); };
-
-  const activeNotes = notes.filter(n => n.status === 'active');
-  const favoriteNotes = notes.filter(n => n.status === 'active' && n.isFavorite);
-  const archivedNotes = notes.filter(n => n.status === 'archived');
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>
@@ -56,7 +60,7 @@ export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenCh
 
         <CommandGroup heading="Notes">
           {activeNotes.map(note => (
-            <CommandItem key={note.id} value={`note-${note.title}-${note.tags.join(',')}-${note.id}`}
+            <CommandItem key={note.id} value={`note-${note.title}-${note.id}`}
               onSelect={() => run(() => { setActiveSection({ type: 'all' }); selectNote(note.id); })}
               className="flex items-center gap-2 cursor-pointer py-1.5">
               <FileText size={12} className="text-muted-foreground shrink-0" />

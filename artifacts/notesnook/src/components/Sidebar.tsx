@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import {
   FileText, Star, Archive, Trash2, Tag, ChevronDown, ChevronRight,
   Plus, FolderOpen, FolderX, Sun, Moon, Settings, Zap, LogOut, Search,
 } from 'lucide-react';
-import { useNotesStore, selectAllTags, selectCounts, SidebarSection } from '../lib/store';
+import { useNotesStore, SidebarSection } from '../lib/store';
 import { useAuth } from '../lib/authContext';
-import { AccentColor } from '../lib/metadata';
+import { AccentColor, getAllTags } from '../lib/metadata';
 import { cn } from '../lib/utils';
 
 const ACCENT_COLORS: { id: AccentColor; label: string; hsl: string }[] = [
@@ -18,28 +18,49 @@ const ACCENT_COLORS: { id: AccentColor; label: string; hsl: string }[] = [
 ];
 
 export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => void }) {
-  const {
-    activeSection, setActiveSection, createNewNote,
-    openNewVault, disconnectVault, vaultHandle, userId,
-    theme, toggleTheme, accentColor, setAccentColor, notes,
-  } = useNotesStore();
   const { user, logout } = useAuth();
-  const tags = useNotesStore(selectAllTags);
-  const counts = useNotesStore(selectCounts);
-  const [tagsOpen, setTagsOpen] = useState(true);
+
+  // Primitive / stable selectors — never return new references
+  const activeSection  = useNotesStore(s => s.activeSection);
+  const vaultHandle    = useNotesStore(s => s.vaultHandle);
+  const userId         = useNotesStore(s => s.userId);
+  const theme          = useNotesStore(s => s.theme);
+  const accentColor    = useNotesStore(s => s.accentColor);
+  const notes          = useNotesStore(s => s.notes);
+  const metadata       = useNotesStore(s => s.metadata);
+
+  // Actions (stable Zustand references)
+  const setActiveSection = useNotesStore(s => s.setActiveSection);
+  const createNewNote    = useNotesStore(s => s.createNewNote);
+  const openNewVault     = useNotesStore(s => s.openNewVault);
+  const disconnectVault  = useNotesStore(s => s.disconnectVault);
+  const toggleTheme      = useNotesStore(s => s.toggleTheme);
+  const setAccentColor   = useNotesStore(s => s.setAccentColor);
+
+  // Compute derived data locally with useMemo — NOT via Zustand selector
+  const tags = useMemo(() => getAllTags(metadata, notes), [metadata, notes]);
+  const counts = useMemo(() => ({
+    all:       notes.filter(n => n.status === 'active').length,
+    favorites: notes.filter(n => n.status === 'active' && n.isFavorite).length,
+    archive:   notes.filter(n => n.status === 'archived').length,
+    trash:     notes.filter(n => n.status === 'trashed').length,
+  }), [notes]);
+
+  const [tagsOpen,     setTagsOpen]     = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
   const isSectionActive = (s: SidebarSection) => {
-    if (s.type === 'tag' && activeSection.type === 'tag') return (activeSection as any).tag === (s as any).tag;
+    if (s.type === 'tag' && activeSection.type === 'tag')
+      return (activeSection as any).tag === (s as any).tag;
     return activeSection.type === s.type;
   };
 
-  type NavItem = { id: SidebarSection; icon: React.ReactNode; label: string; count?: number };
+  type NavItem = { id: SidebarSection; icon: React.ReactNode; label: string; count: number };
   const navItems: NavItem[] = [
-    { id: { type: 'all' },       icon: <FileText size={13} />,  label: 'Notes',     count: counts.all       },
-    { id: { type: 'favorites' }, icon: <Star size={13} />,      label: 'Favorites', count: counts.favorites  },
-    { id: { type: 'archive' },   icon: <Archive size={13} />,   label: 'Archive',   count: counts.archive    },
-    { id: { type: 'trash' },     icon: <Trash2 size={13} />,    label: 'Trash',     count: counts.trash      },
+    { id: { type: 'all' },       icon: <FileText size={13} />, label: 'Notes',     count: counts.all       },
+    { id: { type: 'favorites' }, icon: <Star size={13} />,     label: 'Favorites', count: counts.favorites  },
+    { id: { type: 'archive' },   icon: <Archive size={13} />,  label: 'Archive',   count: counts.archive    },
+    { id: { type: 'trash' },     icon: <Trash2 size={13} />,   label: 'Trash',     count: counts.trash      },
   ];
 
   return (
@@ -71,7 +92,11 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
             <div className="flex gap-1.5 flex-wrap">
               {ACCENT_COLORS.map(c => (
                 <button key={c.id} onClick={() => setAccentColor(c.id)} title={c.label}
-                  style={{ backgroundColor: `hsl(${c.hsl})`, outline: accentColor === c.id ? `2px solid hsl(${c.hsl})` : undefined, outlineOffset: '2px' }}
+                  style={{
+                    backgroundColor: `hsl(${c.hsl})`,
+                    outline: accentColor === c.id ? `2px solid hsl(${c.hsl})` : undefined,
+                    outlineOffset: '2px',
+                  }}
                   className="w-4 h-4 rounded-full transition-all" />
               ))}
             </div>
@@ -96,7 +121,6 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
               </button>
             )}
           </div>
-          {/* Account */}
           {user && (
             <div>
               <p className="text-[9px] uppercase tracking-widest text-sidebar-foreground/35 mb-1 font-semibold">Account</p>
@@ -115,7 +139,7 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
         </div>
       )}
 
-      {/* Actions */}
+      {/* New note + search */}
       {vaultHandle && (
         <div className="px-2 py-2 border-b border-sidebar-border flex gap-1">
           <button onClick={() => createNewNote()}
@@ -136,10 +160,12 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
           return (
             <button key={item.id.type} onClick={() => setActiveSection(item.id)}
               className={cn("w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-[12px] transition-colors",
-                active ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium" : "text-sidebar-foreground/55 hover:text-sidebar-foreground hover:bg-sidebar-accent/50")}>
+                active
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                  : "text-sidebar-foreground/55 hover:text-sidebar-foreground hover:bg-sidebar-accent/50")}>
               <span className={active ? "text-primary" : "text-sidebar-foreground/35"}>{item.icon}</span>
               <span className="flex-1 text-left">{item.label}</span>
-              {!!item.count && (
+              {item.count > 0 && (
                 <span className={cn("text-[10px] tabular-nums", active ? "text-primary font-semibold" : "text-sidebar-foreground/30")}>
                   {item.count}
                 </span>
@@ -164,7 +190,9 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
                   return (
                     <button key={tag} onClick={() => setActiveSection(tagSection)}
                       className={cn("w-full flex items-center gap-1.5 pl-3.5 pr-2 py-1 rounded-md text-[11px] transition-colors",
-                        active ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium" : "text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/50")}>
+                        active
+                          ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
+                          : "text-sidebar-foreground/50 hover:text-sidebar-foreground hover:bg-sidebar-accent/50")}>
                       <Tag size={10} className={active ? "text-primary" : "text-sidebar-foreground/30"} />
                       <span className="flex-1 text-left truncate">{tag}</span>
                       {count > 0 && <span className={cn("text-[10px] tabular-nums", active ? "text-primary" : "text-sidebar-foreground/30")}>{count}</span>}

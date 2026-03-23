@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNotesStore } from '../lib/store';
 import { useAuth } from '../lib/authContext';
 import { WelcomeScreen } from '../components/WelcomeScreen';
@@ -9,7 +9,13 @@ import { CommandPalette } from '../components/CommandPalette';
 
 export default function Home() {
   const { user } = useAuth();
-  const { vaultHandle, init, isLoading, createNewNote, reset } = useNotesStore();
+
+  // Only subscribe to primitives that this component actually needs
+  const vaultHandle  = useNotesStore(s => s.vaultHandle);
+  const isLoading    = useNotesStore(s => s.isLoading);
+  const init         = useNotesStore(s => s.init);
+  const reset        = useNotesStore(s => s.reset);
+
   const [cmdOpen, setCmdOpen] = useState(false);
 
   useEffect(() => {
@@ -18,15 +24,22 @@ export default function Home() {
     } else {
       reset();
     }
-  }, [user?.id]);
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Keyboard shortcut — use a ref so the handler never needs to be re-registered
+  const vaultRef = useRef(vaultHandle);
+  useEffect(() => { vaultRef.current = vaultHandle; }, [vaultHandle]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'n') { e.preventDefault(); if (vaultHandle) createNewNote(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
+        e.preventDefault();
+        if (vaultRef.current) useNotesStore.getState().createNewNote();
+      }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [vaultHandle, createNewNote]);
+  }, []); // stable — reads vault from ref
 
   if (isLoading) {
     return (
@@ -42,6 +55,7 @@ export default function Home() {
       <div className="flex h-screen w-full bg-background overflow-hidden">
         <Sidebar onOpenCommandPalette={() => setCmdOpen(true)} />
         <WelcomeScreen />
+        <CommandPalette open={cmdOpen} onOpenChange={setCmdOpen} />
       </div>
     );
   }

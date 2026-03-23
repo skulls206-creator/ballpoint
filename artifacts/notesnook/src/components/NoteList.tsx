@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, useMemo } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import {
   Star, MoreHorizontal, Trash2, Edit2, Archive, RotateCcw,
@@ -8,22 +8,35 @@ import { useNotesStore, selectFilteredNotes } from '../lib/store';
 import { cn } from '../lib/utils';
 
 export function NoteList() {
-  const {
-    activeNoteId, selectNote, searchQuery, setSearchQuery,
-    trashNote, restoreNote, permanentlyDeleteNote, toggleFavorite,
-    setNoteStatus, activeSection, renameNote,
-  } = useNotesStore();
-  const notes = useNotesStore(selectFilteredNotes);
+  const activeNoteId  = useNotesStore(s => s.activeNoteId);
+  const searchQuery   = useNotesStore(s => s.searchQuery);
+  const activeSection = useNotesStore(s => s.activeSection);
+  const notes         = useNotesStore(s => s.notes);
+
+  // Actions (stable Zustand references)
+  const selectNote           = useNotesStore(s => s.selectNote);
+  const setSearchQuery       = useNotesStore(s => s.setSearchQuery);
+  const trashNote            = useNotesStore(s => s.trashNote);
+  const restoreNote          = useNotesStore(s => s.restoreNote);
+  const permanentlyDeleteNote = useNotesStore(s => s.permanentlyDeleteNote);
+  const toggleFavorite       = useNotesStore(s => s.toggleFavorite);
+  const setNoteStatus        = useNotesStore(s => s.setNoteStatus);
+  const renameNote           = useNotesStore(s => s.renameNote);
+
+  // Derive filtered list locally — useMemo so it only recomputes when inputs change
+  const filteredNotes = useMemo(
+    () => selectFilteredNotes({ notes, activeSection, searchQuery } as any),
+    [notes, activeSection, searchQuery]
+  );
 
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
   const [menuId, setMenuId] = useState<string | null>(null);
   const renameRef = useRef<HTMLInputElement>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const menuRef   = useRef<HTMLDivElement>(null);
 
   useEffect(() => { if (renamingId) renameRef.current?.focus(); }, [renamingId]);
 
-  // Close menu on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuId(null);
@@ -32,14 +45,14 @@ export function NoteList() {
     return () => document.removeEventListener('mousedown', handler);
   }, []);
 
-  const inTrash = activeSection.type === 'trash';
+  const inTrash   = activeSection.type === 'trash';
   const inArchive = activeSection.type === 'archive';
 
   const sectionTitle =
-    activeSection.type === 'all' ? 'Notes'
+    activeSection.type === 'all'       ? 'Notes'
     : activeSection.type === 'favorites' ? 'Favorites'
-    : activeSection.type === 'archive' ? 'Archive'
-    : activeSection.type === 'trash' ? 'Trash'
+    : activeSection.type === 'archive'   ? 'Archive'
+    : activeSection.type === 'trash'     ? 'Trash'
     : `#${(activeSection as any).tag}`;
 
   return (
@@ -48,7 +61,7 @@ export function NoteList() {
       <div className="px-3 py-2 border-b border-border/60 space-y-1.5 shrink-0">
         <div className="flex items-center justify-between">
           <span className="text-[11px] font-semibold text-foreground/60 uppercase tracking-wider">{sectionTitle}</span>
-          <span className="text-[10px] text-muted-foreground tabular-nums">{notes.length}</span>
+          <span className="text-[10px] text-muted-foreground tabular-nums">{filteredNotes.length}</span>
         </div>
         <div className="relative">
           <input
@@ -60,8 +73,8 @@ export function NoteList() {
           />
           {searchQuery && (
             <button onClick={() => setSearchQuery('')}
-              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
-              <span className="text-[10px]">✕</span>
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground text-[10px]">
+              ✕
             </button>
           )}
         </div>
@@ -69,7 +82,7 @@ export function NoteList() {
 
       {/* Note list */}
       <div className="flex-1 overflow-y-auto py-1">
-        {notes.length === 0 ? (
+        {filteredNotes.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground/40 px-4 text-center">
             <FileText size={28} className="mb-2 opacity-30" />
             <p className="text-[11px]">
@@ -77,22 +90,20 @@ export function NoteList() {
             </p>
           </div>
         ) : (
-          notes.map(note => {
-            const isActive = activeNoteId === note.id;
+          filteredNotes.map(note => {
+            const isActive   = activeNoteId === note.id;
             const isMenuOpen = menuId === note.id;
             const isRenaming = renamingId === note.id;
 
             return (
               <div
                 key={note.id}
-                onClick={() => !inTrash && selectNote(note.id)}
+                onClick={() => { if (!inTrash && !isRenaming) selectNote(note.id); }}
                 className={cn(
-                  "group relative px-3 py-2 transition-colors cursor-default border-b border-border/30",
+                  "group relative px-3 py-2 transition-colors border-b border-border/30",
                   isActive
                     ? "bg-accent/60 border-l-2 border-l-primary"
-                    : !inTrash
-                    ? "hover:bg-muted/50 cursor-pointer"
-                    : ""
+                    : !inTrash ? "hover:bg-muted/50 cursor-pointer" : ""
                 )}
               >
                 {/* Title row */}
@@ -121,7 +132,7 @@ export function NoteList() {
                   )}
 
                   {/* Context menu trigger */}
-                  <div className="relative" ref={isMenuOpen ? menuRef : undefined}>
+                  <div className="relative">
                     <button
                       onClick={e => { e.stopPropagation(); setMenuId(isMenuOpen ? null : note.id); }}
                       className={cn(
@@ -133,7 +144,11 @@ export function NoteList() {
                     </button>
 
                     {isMenuOpen && (
-                      <div ref={menuRef} className="absolute right-0 top-5 z-50 w-36 bg-popover border border-popover-border rounded-lg shadow-lg py-0.5 text-[11px]" onClick={e => e.stopPropagation()}>
+                      <div
+                        ref={menuRef}
+                        className="absolute right-0 top-5 z-50 w-36 bg-popover border border-popover-border rounded-lg shadow-lg py-0.5 text-[11px]"
+                        onClick={e => e.stopPropagation()}
+                      >
                         {!inTrash && !inArchive && (
                           <>
                             <button onClick={() => { toggleFavorite(note.id); setMenuId(null); }}
@@ -209,18 +224,18 @@ export function NoteList() {
         )}
       </div>
 
-      {/* Trash actions */}
-      {inTrash && notes.length > 0 && (
+      {/* Trash: empty all button */}
+      {inTrash && filteredNotes.length > 0 && (
         <div className="px-3 py-2 border-t border-border shrink-0">
           <button
             onClick={() => {
               if (confirm('Permanently delete all trashed notes? This cannot be undone.')) {
-                notes.forEach(n => permanentlyDeleteNote(n.id));
+                filteredNotes.forEach(n => permanentlyDeleteNote(n.id));
               }
             }}
             className="w-full text-[11px] text-destructive/70 hover:text-destructive transition-colors py-1"
           >
-            Empty Trash ({notes.length})
+            Empty Trash ({filteredNotes.length})
           </button>
         </div>
       )}

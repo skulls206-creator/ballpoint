@@ -1,10 +1,10 @@
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { format } from 'date-fns';
 import {
   Save, Eye, EyeOff, Star, Archive, Trash2, RotateCcw,
-  Bell, BellOff, Tag, X, Plus, Check, FileText,
+  Bell, BellOff, Tag, X, Check, FileText,
 } from 'lucide-react';
 import { useNotesStore } from '../lib/store';
 import { cn } from '../lib/utils';
@@ -65,13 +65,14 @@ function ReminderButton({ noteId, hasReminder, reminderTime, reminderStatus }: {
   reminderTime?: string;
   reminderStatus?: string;
 }) {
-  const { setReminder, dismissReminder } = useNotesStore();
+  const setReminder     = useNotesStore(s => s.setReminder);
+  const dismissReminder = useNotesStore(s => s.dismissReminder);
   const [open, setOpen] = useState(false);
   const [value, setValue] = useState('');
   const popoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (reminderTime) setValue(reminderTime.slice(0, 16)); // datetime-local format
+    if (reminderTime) setValue(reminderTime.slice(0, 16));
   }, [reminderTime]);
 
   useEffect(() => {
@@ -150,19 +151,36 @@ function ReminderButton({ noteId, hasReminder, reminderTime, reminderStatus }: {
 
 // ─── Main Editor ─────────────────────────────────────────────────────────────
 export function Editor() {
-  const {
-    activeNoteId, notes, activeContent, updateContent, saveActiveNote,
-    isDirty, renameNote, toggleFavorite, setNoteStatus, setTags, trashNote, restoreNote, activeSection,
-  } = useNotesStore();
+  // Stable primitive selectors — each returns a primitive or stable reference
+  const activeNoteId  = useNotesStore(s => s.activeNoteId);
+  const notes         = useNotesStore(s => s.notes);
+  const activeContent = useNotesStore(s => s.activeContent);
+  const isDirty       = useNotesStore(s => s.isDirty);
+  const activeSection = useNotesStore(s => s.activeSection);
+
+  // Actions (stable Zustand references)
+  const updateContent  = useNotesStore(s => s.updateContent);
+  const saveActiveNote = useNotesStore(s => s.saveActiveNote);
+  const renameNote     = useNotesStore(s => s.renameNote);
+  const toggleFavorite = useNotesStore(s => s.toggleFavorite);
+  const setNoteStatus  = useNotesStore(s => s.setNoteStatus);
+  const setTags        = useNotesStore(s => s.setTags);
+  const trashNote      = useNotesStore(s => s.trashNote);
+  const restoreNote    = useNotesStore(s => s.restoreNote);
 
   const [showPreview, setShowPreview] = useState(false);
-  const [titleValue, setTitleValue] = useState('');
-  const titleRef = useRef<HTMLInputElement>(null);
+  const [titleValue, setTitleValue]   = useState('');
+  const titleRef    = useRef<HTMLInputElement>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
-  const activeNote = notes.find(n => n.id === activeNoteId);
-  const isTrash = activeSection.type === 'trash';
-  const isArchive = activeSection.type === 'archive';
+  // Compute activeNote locally — notes is a stable ref until refreshNotes() replaces it
+  const activeNote = useMemo(
+    () => notes.find(n => n.id === activeNoteId) ?? null,
+    [notes, activeNoteId]
+  );
+
+  const isTrash    = activeSection.type === 'trash';
+  const isArchive  = activeSection.type === 'archive';
   const isReadOnly = isTrash;
 
   useEffect(() => {
@@ -187,6 +205,13 @@ export function Editor() {
     return () => window.removeEventListener('keydown', handler);
   }, [saveActiveNote]);
 
+  // Memoize the markdown render so it only re-runs when content changes
+  const cleanHtml = useMemo(() => {
+    if (!activeContent?.trim()) return '';
+    const raw = marked(activeContent);
+    return DOMPurify.sanitize(typeof raw === 'string' ? raw : String(raw));
+  }, [activeContent]);
+
   if (!activeNoteId || !activeNote) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center bg-background text-muted-foreground/40">
@@ -197,16 +222,12 @@ export function Editor() {
     );
   }
 
-  const rawHtml = marked(activeContent || '');
-  const cleanHtml = DOMPurify.sanitize(typeof rawHtml === 'string' ? rawHtml : String(rawHtml));
-
   return (
     <div className="flex-1 flex flex-col bg-background h-full overflow-hidden">
       {/* ── Header ── */}
       <header className="shrink-0 border-b border-border bg-card/20 px-4 pt-3 pb-2 space-y-1.5">
         {/* Title row */}
         <div className="flex items-center gap-2 min-w-0">
-          {/* Favorite star */}
           <button
             onClick={() => toggleFavorite(activeNote.id)}
             className={cn("shrink-0 transition-colors", activeNote.isFavorite ? "text-primary" : "text-muted-foreground/25 hover:text-muted-foreground")}
@@ -215,7 +236,6 @@ export function Editor() {
             <Star size={14} className={activeNote.isFavorite ? "fill-primary" : ""} />
           </button>
 
-          {/* Title input */}
           <input
             ref={titleRef}
             type="text"
@@ -230,9 +250,7 @@ export function Editor() {
             placeholder="Untitled"
           />
 
-          {/* Right actions */}
           <div className="flex items-center gap-1 shrink-0">
-            {/* Reminder */}
             {!isReadOnly && (
               <ReminderButton
                 noteId={activeNote.id}
@@ -242,7 +260,6 @@ export function Editor() {
               />
             )}
 
-            {/* Archive / Restore */}
             {!isTrash && !isArchive && (
               <button onClick={() => setNoteStatus(activeNote.id, 'archived')} title="Archive"
                 className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground/40 hover:text-foreground hover:bg-muted transition-colors border border-border">
@@ -262,7 +279,6 @@ export function Editor() {
               </button>
             )}
 
-            {/* Trash (only from active) */}
             {!isTrash && !isArchive && (
               <button onClick={() => trashNote(activeNote.id)} title="Move to trash"
                 className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors border border-border">
@@ -270,14 +286,12 @@ export function Editor() {
               </button>
             )}
 
-            {/* Preview toggle */}
             <button onClick={() => setShowPreview(p => !p)} title="Toggle preview"
               className={cn("h-6 w-6 rounded flex items-center justify-center transition-colors border border-border",
                 showPreview ? "bg-muted text-foreground" : "text-muted-foreground/40 hover:text-foreground hover:bg-muted")}>
               {showPreview ? <EyeOff size={11} /> : <Eye size={11} />}
             </button>
 
-            {/* Save indicator */}
             <button onClick={saveActiveNote} disabled={!isDirty || isReadOnly}
               title={isDirty ? "Save (Ctrl+S)" : "Saved"}
               className={cn("h-6 px-2 rounded flex items-center gap-1 text-[11px] border transition-all",
@@ -317,13 +331,17 @@ export function Editor() {
         <div className="mx-4 mt-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-orange-400/10 border border-orange-400/20 text-[11px] text-orange-400 shrink-0">
           <Bell size={11} />
           <span>Reminder fired — {activeNote.reminderTime ? format(new Date(activeNote.reminderTime), 'MMM d, h:mm a') : ''}</span>
-          <button onClick={() => useNotesStore.getState().dismissReminder(activeNote.id)} className="ml-auto hover:text-orange-300 transition-colors">Dismiss</button>
+          <button
+            onClick={() => useNotesStore.getState().dismissReminder(activeNote.id)}
+            className="ml-auto hover:text-orange-300 transition-colors"
+          >
+            Dismiss
+          </button>
         </div>
       )}
 
       {/* ── Editor / Preview ── */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Editor pane */}
         <div className={cn("flex-1 flex flex-col min-w-0", showPreview && "hidden lg:flex lg:w-1/2 lg:flex-none")}>
           <textarea
             value={activeContent}
@@ -335,7 +353,6 @@ export function Editor() {
           />
         </div>
 
-        {/* Preview pane */}
         {showPreview && (
           <div className="flex-1 border-l border-border bg-card/10 overflow-y-auto px-6 py-4">
             {activeContent.trim() ? (
