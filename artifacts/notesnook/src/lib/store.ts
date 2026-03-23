@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import {
   openVault, loadVault, scanFolder, readNote, saveNote,
   createNote, deleteNote, renameNote, clearVault, NoteFile,
+  readVaultFile, writeVaultFile, deleteVaultFile,
 } from './fileSystem';
 import {
   loadAllMetadata, saveAllMetadata, updateNoteMeta, removeNoteMeta,
@@ -11,6 +12,10 @@ import {
   Task, TaskMap, loadAllTasks, saveAllTasks,
   parseTasksFromContent, mergeTasks, toggleTaskInContent,
 } from './tasks';
+import {
+  VAULT_KEY_FILENAME, isEncrypted, encryptContent, decryptContent,
+  createKeyFileContent, openKeyFile,
+} from './crypto';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -40,6 +45,8 @@ interface NotesState {
   activeSection: SidebarSection;
   theme: 'light' | 'dark';
   accentColor: AccentColor;
+  encryptionKey: CryptoKey | null;
+  isVaultEncrypted: boolean;
 
   // Vault
   init: (userId: number) => Promise<void>;
@@ -47,6 +54,12 @@ interface NotesState {
   openNewVault: (userId: number) => Promise<void>;
   disconnectVault: (userId: number) => Promise<void>;
   refreshNotes: () => Promise<void>;
+
+  // Encryption
+  unlockVault: (password: string) => Promise<boolean>;
+  lockVault: () => void;
+  enableEncryption: (password: string) => Promise<void>;
+  disableEncryption: () => Promise<void>;
 
   // Notes CRUD
   selectNote: (id: string) => Promise<void>;
@@ -148,13 +161,18 @@ function mergeWithMeta(
 async function buildFullTaskIndex(
   userId: number,
   notes: NoteFile[],
-  existingTasks: TaskMap
+  existingTasks: TaskMap,
+  encryptionKey: CryptoKey | null
 ): Promise<TaskMap> {
   let allTasks = { ...existingTasks };
   for (const note of notes) {
     if (note.status !== 'active') continue;
     try {
-      const content = await readNote(note.handle);
+      let content = await readNote(note.handle);
+      if (isEncrypted(content)) {
+        if (!encryptionKey) continue; // can't parse without key
+        content = await decryptContent(content, encryptionKey);
+      }
       const parsed = parseTasksFromContent(note.id, note.title, content);
       const otherTasks = Object.fromEntries(
         Object.entries(allTasks).filter(([, t]) => t.noteId !== note.id)
@@ -183,6 +201,8 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   activeSection: { type: 'all' },
   theme: getInitialTheme(),
   accentColor: getInitialAccent(),
+  encryptionKey: null,
+  isVaultEncrypted: false,
 
   init: async (userId) => {
     set({ isLoading: true, userId });
@@ -190,26 +210,30 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
     const handle = await loadVault(userId);
     if (handle) {
-      const [rawFiles, meta, existingTasks] = await Promise.all([
+      const [rawFiles, meta, existingTasks, keyFile] = await Promise.all([
         scanFolder(handle),
         loadAllMetadata(userId),
         loadAllTasks(userId),
+        readVaultFile(handle, VAULT_KEY_FILENAME),
       ]);
       const notes = mergeWithMeta(rawFiles, meta);
-      set({ vaultHandle: handle, notes, metadata: meta, tasks: existingTasks, isLoading: false });
+      const isVaultEncrypted = keyFile !== null;
+      set({ vaultHandle: handle, notes, metadata: meta, tasks: existingTasks, isVaultEncrypted, encryptionKey: null, isLoading: false });
 
-      const lastId = localStorage.getItem(activeNoteKey(userId));
-      if (lastId && notes.find(n => n.id === lastId)) {
-        get().selectNote(lastId);
-      } else {
-        const first = notes.find(n => n.status === 'active');
-        if (first) get().selectNote(first.id);
+      if (!isVaultEncrypted) {
+        // Unencrypted vault — open notes normally
+        const lastId = localStorage.getItem(activeNoteKey(userId));
+        if (lastId && notes.find(n => n.id === lastId)) {
+          get().selectNote(lastId);
+        } else {
+          const first = notes.find(n => n.status === 'active');
+          if (first) get().selectNote(first.id);
+        }
+        buildFullTaskIndex(userId, notes, existingTasks, null)
+          .then(tasks => set({ tasks }))
+          .catch(() => {});
       }
-
-      // Background full-vault task scan (non-blocking)
-      buildFullTaskIndex(userId, notes, existingTasks)
-        .then(tasks => set({ tasks }))
-        .catch(() => {});
+      // If encrypted — wait for unlockVault() to be called
     } else {
       set({ isLoading: false });
     }
@@ -218,30 +242,35 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   reset: () => set({
     userId: null, vaultHandle: null, notes: [], metadata: {}, tasks: {},
     activeNoteId: null, activeContent: '', isDirty: false, isLoading: false, searchQuery: '',
+    encryptionKey: null, isVaultEncrypted: false,
   }),
 
   openNewVault: async (userId) => {
     const handle = await openVault(userId);
     if (!handle) return;
     set({ isLoading: true });
-    const [rawFiles, meta, existingTasks] = await Promise.all([
+    const [rawFiles, meta, existingTasks, keyFile] = await Promise.all([
       scanFolder(handle),
       loadAllMetadata(userId),
       loadAllTasks(userId),
+      readVaultFile(handle, VAULT_KEY_FILENAME),
     ]);
     const notes = mergeWithMeta(rawFiles, meta);
-    set({ vaultHandle: handle, notes, metadata: meta, tasks: existingTasks, activeNoteId: null, activeContent: '', isDirty: false, isLoading: false });
-    const first = notes.find(n => n.status === 'active');
-    if (first) get().selectNote(first.id);
-    buildFullTaskIndex(userId, notes, existingTasks)
-      .then(tasks => set({ tasks }))
-      .catch(() => {});
+    const isVaultEncrypted = keyFile !== null;
+    set({ vaultHandle: handle, notes, metadata: meta, tasks: existingTasks, activeNoteId: null, activeContent: '', isDirty: false, isLoading: false, isVaultEncrypted, encryptionKey: null });
+    if (!isVaultEncrypted) {
+      const first = notes.find(n => n.status === 'active');
+      if (first) get().selectNote(first.id);
+      buildFullTaskIndex(userId, notes, existingTasks, null)
+        .then(tasks => set({ tasks }))
+        .catch(() => {});
+    }
   },
 
   disconnectVault: async (userId) => {
     await clearVault(userId);
     localStorage.removeItem(activeNoteKey(userId));
-    set({ vaultHandle: null, notes: [], metadata: {}, tasks: {}, activeNoteId: null, activeContent: '', isDirty: false });
+    set({ vaultHandle: null, notes: [], metadata: {}, tasks: {}, activeNoteId: null, activeContent: '', isDirty: false, encryptionKey: null, isVaultEncrypted: false });
   },
 
   refreshNotes: async () => {
@@ -257,7 +286,12 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     if (state.isDirty && state.activeNoteId) await state.saveActiveNote();
     const note = state.notes.find(n => n.id === id);
     if (note && state.userId !== null) {
-      const content = await readNote(note.handle);
+      let content = await readNote(note.handle);
+      if (isEncrypted(content)) {
+        content = state.encryptionKey
+          ? await decryptContent(content, state.encryptionKey)
+          : '[Encrypted — unlock vault to view]';
+      }
       localStorage.setItem(activeNoteKey(state.userId), id);
       set({ activeNoteId: id, activeContent: content, isDirty: false });
       // Sync tasks in background (don't await so UI is snappy)
@@ -268,11 +302,14 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   updateContent: (content) => set({ activeContent: content, isDirty: true }),
 
   saveActiveNote: async () => {
-    const { activeNoteId, vaultHandle, notes, activeContent } = get();
+    const { activeNoteId, vaultHandle, notes, activeContent, encryptionKey } = get();
     if (!activeNoteId || !vaultHandle) return;
     const note = notes.find(n => n.id === activeNoteId);
     if (note) {
-      await saveNote(note.handle, activeContent);
+      const contentToSave = encryptionKey
+        ? await encryptContent(activeContent, encryptionKey)
+        : activeContent;
+      await saveNote(note.handle, contentToSave);
       set({ isDirty: false });
       await get().refreshNotes();
       get().syncNoteTasks(activeNoteId, note.title, activeContent).catch(() => {});
@@ -451,7 +488,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   },
 
   toggleTask: async (taskId) => {
-    const { userId, tasks, activeNoteId, activeContent, notes } = get();
+    const { userId, tasks, activeNoteId, activeContent, notes, encryptionKey } = get();
     if (!userId) return;
     const task = tasks[taskId];
     if (!task) return;
@@ -461,11 +498,23 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
     const newCompleted = !task.completed;
 
-    // Read content from memory (if active) or from disk
-    const content = activeNoteId === task.noteId ? activeContent : await readNote(note.handle);
+    // Read content from memory (if active) or from disk (and decrypt if needed)
+    let content: string;
+    if (activeNoteId === task.noteId) {
+      content = activeContent;
+    } else {
+      const raw = await readNote(note.handle);
+      content = (isEncrypted(raw) && encryptionKey)
+        ? await decryptContent(raw, encryptionKey)
+        : raw;
+    }
     const newContent = toggleTaskInContent(content, task.lineIndex, newCompleted);
 
-    await saveNote(note.handle, newContent);
+    // Re-encrypt if needed before saving
+    const toSave = encryptionKey
+      ? await encryptContent(newContent, encryptionKey)
+      : newContent;
+    await saveNote(note.handle, toSave);
 
     // If toggled note is the open one, update editor content too
     if (activeNoteId === task.noteId) {
@@ -495,6 +544,83 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const initialContent = `- [ ] ${text}\n`;
     get().updateContent(initialContent);
     await get().saveActiveNote();
+  },
+
+  // ── Encryption ────────────────────────────────────────────────────────────
+
+  unlockVault: async (password) => {
+    const { vaultHandle, userId, notes, tasks: existingTasks } = get();
+    if (!vaultHandle || !userId) return false;
+    const keyFileContent = await readVaultFile(vaultHandle, VAULT_KEY_FILENAME);
+    if (!keyFileContent) return false;
+    const key = await openKeyFile(keyFileContent, password);
+    if (!key) return false;
+
+    set({ encryptionKey: key });
+
+    // Auto-open last/first note now that we have the key
+    const lastId = localStorage.getItem(activeNoteKey(userId));
+    if (lastId && notes.find(n => n.id === lastId)) {
+      get().selectNote(lastId);
+    } else {
+      const first = notes.find(n => n.status === 'active');
+      if (first) get().selectNote(first.id);
+    }
+
+    // Rebuild task index with the decryption key
+    buildFullTaskIndex(userId, notes, existingTasks, key)
+      .then(tasks => set({ tasks }))
+      .catch(() => {});
+
+    return true;
+  },
+
+  lockVault: () => {
+    set({ encryptionKey: null, activeNoteId: null, activeContent: '', isDirty: false });
+  },
+
+  enableEncryption: async (password) => {
+    const { vaultHandle, userId, notes, encryptionKey } = get();
+    if (!vaultHandle || !userId || encryptionKey) return; // already encrypted
+
+    const { key, content: keyContent } = await createKeyFileContent(password);
+    await writeVaultFile(vaultHandle, VAULT_KEY_FILENAME, keyContent);
+
+    // Encrypt all existing note files
+    for (const note of notes) {
+      try {
+        const raw = await readNote(note.handle);
+        if (!isEncrypted(raw)) {
+          const enc = await encryptContent(raw, key);
+          await saveNote(note.handle, enc);
+        }
+      } catch { /* skip unreadable */ }
+    }
+
+    set({ encryptionKey: key, isVaultEncrypted: true });
+
+    // Refresh the active note's content from memory (already decrypted in editor)
+    const { activeNoteId } = get();
+    if (activeNoteId) get().selectNote(activeNoteId);
+  },
+
+  disableEncryption: async () => {
+    const { vaultHandle, userId, notes, encryptionKey } = get();
+    if (!vaultHandle || !userId || !encryptionKey) return;
+
+    // Decrypt and rewrite every note file
+    for (const note of notes) {
+      try {
+        const raw = await readNote(note.handle);
+        if (isEncrypted(raw)) {
+          const plain = await decryptContent(raw, encryptionKey);
+          await saveNote(note.handle, plain);
+        }
+      } catch { /* skip */ }
+    }
+
+    await deleteVaultFile(vaultHandle, VAULT_KEY_FILENAME);
+    set({ encryptionKey: null, isVaultEncrypted: false });
   },
 
   // ── UI ────────────────────────────────────────────────────────────────────

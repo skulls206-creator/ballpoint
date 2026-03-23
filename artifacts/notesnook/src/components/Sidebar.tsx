@@ -3,7 +3,8 @@ import {
   FileText, Star, Archive, Trash2, Tag, ChevronDown, ChevronRight,
   Plus, FolderOpen, FolderX, Sun, Moon, Settings, Zap, LogOut, Search,
   Download, CheckCircle2, ListTodo, Clock, Calendar, CheckCheck,
-  FilePlus, RotateCcw, Trash, TagIcon, RefreshCw,
+  FilePlus, RotateCcw, Trash, TagIcon,
+  Lock, LockOpen, ShieldCheck,
 } from 'lucide-react';
 import { useNotesStore, SidebarSection } from '../lib/store';
 import { useAuth } from '../lib/authContext';
@@ -50,6 +51,11 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
   const disconnectVault       = useNotesStore(s => s.disconnectVault);
   const toggleTheme           = useNotesStore(s => s.toggleTheme);
   const setAccentColor        = useNotesStore(s => s.setAccentColor);
+  const isVaultEncrypted      = useNotesStore(s => s.isVaultEncrypted);
+  const encryptionKey         = useNotesStore(s => s.encryptionKey);
+  const enableEncryption      = useNotesStore(s => s.enableEncryption);
+  const disableEncryption     = useNotesStore(s => s.disableEncryption);
+  const lockVault             = useNotesStore(s => s.lockVault);
 
   const tags = useMemo(() => getAllTags(metadata, notes), [metadata, notes]);
   const counts = useMemo(() => ({
@@ -60,8 +66,13 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
   }), [notes]);
   const taskCounts = useMemo(() => selectTaskCounts(tasks), [tasks]);
 
-  const [tagsOpen,     setTagsOpen]     = useState(true);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [tagsOpen,        setTagsOpen]        = useState(true);
+  const [settingsOpen,    setSettingsOpen]    = useState(false);
+  const [showEncryption,  setShowEncryption]  = useState(false);
+  const [encPwd,          setEncPwd]          = useState('');
+  const [encPwd2,         setEncPwd2]         = useState('');
+  const [encError,        setEncError]        = useState('');
+  const [encLoading,      setEncLoading]      = useState(false);
 
   // ─── Context menu ─────────────────────────────────────────────────────────
   type CtxItem = { label: string; icon: React.ReactNode; action: () => void; danger?: boolean };
@@ -240,6 +251,103 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
               </button>
             )}
           </div>
+
+          {/* Encryption */}
+          {vaultHandle && (
+            <div>
+              <p className="text-[9px] uppercase tracking-widest text-sidebar-foreground/35 mb-1 font-semibold">Encryption</p>
+
+              {/* Status row */}
+              <div className="flex items-center gap-1.5 mb-1">
+                {isVaultEncrypted ? (
+                  <>
+                    <ShieldCheck size={10} className="text-green-500 shrink-0" />
+                    <span className="text-[11px] text-sidebar-foreground/60 flex-1">
+                      {encryptionKey ? 'Vault unlocked' : 'Vault locked'}
+                    </span>
+                    {encryptionKey && (
+                      <button onClick={lockVault} title="Lock vault"
+                        className="flex items-center gap-1 px-1 py-0.5 rounded text-[10px] text-sidebar-foreground/50 hover:text-foreground hover:bg-sidebar-accent transition-colors">
+                        <Lock size={9} /> Lock
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <LockOpen size={10} className="text-sidebar-foreground/40 shrink-0" />
+                    <span className="text-[11px] text-sidebar-foreground/50 flex-1">Not encrypted</span>
+                  </>
+                )}
+              </div>
+
+              {/* Expand/collapse password form */}
+              {encryptionKey && (
+                <button onClick={() => { setShowEncryption(p => !p); setEncPwd(''); setEncPwd2(''); setEncError(''); }}
+                  className="w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-[11px] text-destructive/70 hover:bg-destructive/10 transition-colors">
+                  <LockOpen size={10} /> Disable encryption
+                </button>
+              )}
+              {!isVaultEncrypted && (
+                <button onClick={() => { setShowEncryption(p => !p); setEncPwd(''); setEncPwd2(''); setEncError(''); }}
+                  className="w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-[11px] text-sidebar-foreground/60 hover:bg-sidebar-accent transition-colors">
+                  <Lock size={10} /> Enable encryption
+                </button>
+              )}
+
+              {/* Password form (enable/disable) */}
+              {showEncryption && (
+                <div className="mt-1 space-y-1.5 bg-sidebar-accent/30 rounded-md px-2 py-2">
+                  {!isVaultEncrypted && (
+                    <>
+                      <p className="text-[10px] text-sidebar-foreground/50 leading-snug">
+                        All notes will be encrypted with AES-256-GCM. Choose a strong password — it cannot be recovered.
+                      </p>
+                      <input type="password" value={encPwd} onChange={e => setEncPwd(e.target.value)}
+                        placeholder="Choose password"
+                        className="w-full px-2 py-1 rounded border border-border bg-background text-[11px] outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40" />
+                      <input type="password" value={encPwd2} onChange={e => setEncPwd2(e.target.value)}
+                        placeholder="Confirm password"
+                        className="w-full px-2 py-1 rounded border border-border bg-background text-[11px] outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40" />
+                    </>
+                  )}
+                  {isVaultEncrypted && encryptionKey && (
+                    <p className="text-[10px] text-sidebar-foreground/50 leading-snug">
+                      All notes will be decrypted and the key file removed. Are you sure?
+                    </p>
+                  )}
+                  {encError && <p className="text-[10px] text-destructive">{encError}</p>}
+                  <div className="flex gap-1.5">
+                    <button
+                      disabled={encLoading}
+                      onClick={async () => {
+                        setEncError('');
+                        if (!isVaultEncrypted) {
+                          if (!encPwd) { setEncError('Enter a password.'); return; }
+                          if (encPwd !== encPwd2) { setEncError('Passwords do not match.'); return; }
+                          if (encPwd.length < 8) { setEncError('Use at least 8 characters.'); return; }
+                          setEncLoading(true);
+                          await enableEncryption(encPwd);
+                          setEncLoading(false);
+                        } else {
+                          setEncLoading(true);
+                          await disableEncryption();
+                          setEncLoading(false);
+                        }
+                        setShowEncryption(false);
+                        setEncPwd(''); setEncPwd2('');
+                      }}
+                      className="flex-1 py-1 rounded text-[10px] font-medium bg-primary text-primary-foreground disabled:opacity-50 hover:bg-primary/90 transition-colors">
+                      {encLoading ? '…' : isVaultEncrypted ? 'Decrypt & disable' : 'Encrypt vault'}
+                    </button>
+                    <button onClick={() => { setShowEncryption(false); setEncPwd(''); setEncPwd2(''); setEncError(''); }}
+                      className="px-2 py-1 rounded text-[10px] text-sidebar-foreground/50 hover:bg-sidebar-accent transition-colors">
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Install PWA */}
           {!isInstalled && canInstall && (

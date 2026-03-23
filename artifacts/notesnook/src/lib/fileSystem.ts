@@ -108,3 +108,35 @@ export async function renameNote(
 export async function deleteNote(dirHandle: FileSystemDirectoryHandle, name: string): Promise<void> {
   await dirHandle.removeEntry(name);
 }
+
+// ─── Vault-root file helpers (for encryption key descriptor, etc.) ────────────
+
+export async function readVaultFile(
+  dir: FileSystemDirectoryHandle,
+  name: string
+): Promise<string | null> {
+  try {
+    const fh = await dir.getFileHandle(name);
+    return (await fh.getFile()).text();
+  } catch {
+    return null;
+  }
+}
+
+export async function writeVaultFile(
+  dir: FileSystemDirectoryHandle,
+  name: string,
+  content: string
+): Promise<void> {
+  const fh = await dir.getFileHandle(name, { create: true });
+  const w = await (fh as any).createWritable();
+  await w.write(content);
+  await w.close();
+}
+
+export async function deleteVaultFile(
+  dir: FileSystemDirectoryHandle,
+  name: string
+): Promise<void> {
+  try { await dir.removeEntry(name); } catch { /* already gone */ }
+}
