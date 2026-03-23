@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import {
   FileText, Star, Archive, Trash2, Tag, ChevronDown, ChevronRight,
   Plus, FolderOpen, FolderX, Sun, Moon, Settings, Zap, LogOut, Search,
   Download, CheckCircle2, ListTodo, Clock, Calendar, CheckCheck,
+  FilePlus, RotateCcw, Trash, TagIcon, RefreshCw,
 } from 'lucide-react';
 import { useNotesStore, SidebarSection } from '../lib/store';
 import { useAuth } from '../lib/authContext';
@@ -37,12 +38,18 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
   const metadata       = useNotesStore(s => s.metadata);
   const tasks          = useNotesStore(s => s.tasks);
 
-  const setActiveSection = useNotesStore(s => s.setActiveSection);
-  const createNewNote    = useNotesStore(s => s.createNewNote);
-  const openNewVault     = useNotesStore(s => s.openNewVault);
-  const disconnectVault  = useNotesStore(s => s.disconnectVault);
-  const toggleTheme      = useNotesStore(s => s.toggleTheme);
-  const setAccentColor   = useNotesStore(s => s.setAccentColor);
+  const setActiveSection      = useNotesStore(s => s.setActiveSection);
+  const createNewNote         = useNotesStore(s => s.createNewNote);
+  const permanentlyDeleteNote = useNotesStore(s => s.permanentlyDeleteNote);
+  const setNoteStatus         = useNotesStore(s => s.setNoteStatus);
+  const setTags               = useNotesStore(s => s.setTags);
+  const toggleFavorite        = useNotesStore(s => s.toggleFavorite);
+  const createTaskNote        = useNotesStore(s => s.createTaskNote);
+  const setTaskDueDate        = useNotesStore(s => s.setTaskDueDate);
+  const openNewVault          = useNotesStore(s => s.openNewVault);
+  const disconnectVault       = useNotesStore(s => s.disconnectVault);
+  const toggleTheme           = useNotesStore(s => s.toggleTheme);
+  const setAccentColor        = useNotesStore(s => s.setAccentColor);
 
   const tags = useMemo(() => getAllTags(metadata, notes), [metadata, notes]);
   const counts = useMemo(() => ({
@@ -56,27 +63,122 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
   const [tagsOpen,     setTagsOpen]     = useState(true);
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  // ─── Context menu ─────────────────────────────────────────────────────────
+  type CtxItem = { label: string; icon: React.ReactNode; action: () => void; danger?: boolean };
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; items: CtxItem[] } | null>(null);
+  const ctxRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = (e: MouseEvent) => {
+      if (ctxRef.current && !ctxRef.current.contains(e.target as Node)) setCtxMenu(null);
+    };
+    window.addEventListener('mousedown', close);
+    return () => window.removeEventListener('mousedown', close);
+  }, [ctxMenu]);
+
+  const openCtx = (e: React.MouseEvent, items: CtxItem[]) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({ x: e.clientX, y: e.clientY, items });
+  };
+
+  const runCtx = (action: () => void) => { setCtxMenu(null); action(); };
+
   const isSectionActive = (s: SidebarSection) => {
     if (s.type === 'tag' && activeSection.type === 'tag')
       return (activeSection as any).tag === (s as any).tag;
     return activeSection.type === s.type;
   };
 
-  type NavItem = { id: SidebarSection; icon: React.ReactNode; label: string; count: number };
+  type NavItem = { id: SidebarSection; icon: React.ReactNode; label: string; count: number; ctx: CtxItem[] };
+
   const noteItems: NavItem[] = [
-    { id: { type: 'all' },       icon: <FileText size={13} />, label: 'Notes',     count: counts.all       },
-    { id: { type: 'favorites' }, icon: <Star size={13} />,     label: 'Favorites', count: counts.favorites  },
-    { id: { type: 'archive' },   icon: <Archive size={13} />,  label: 'Archive',   count: counts.archive    },
-    { id: { type: 'trash' },     icon: <Trash2 size={13} />,   label: 'Trash',     count: counts.trash      },
+    {
+      id: { type: 'all' }, icon: <FileText size={13} />, label: 'Notes', count: counts.all,
+      ctx: [
+        { label: 'New Note', icon: <FilePlus size={12} />, action: () => createNewNote() },
+      ],
+    },
+    {
+      id: { type: 'favorites' }, icon: <Star size={13} />, label: 'Favorites', count: counts.favorites,
+      ctx: [
+        { label: 'New Favorite Note', icon: <Star size={12} />, action: async () => {
+          await createNewNote();
+          const newest = useNotesStore.getState().notes.find(n => n.status === 'active');
+          if (newest) toggleFavorite(newest.id);
+        }},
+      ],
+    },
+    {
+      id: { type: 'archive' }, icon: <Archive size={13} />, label: 'Archive', count: counts.archive,
+      ctx: [
+        { label: 'Restore All', icon: <RotateCcw size={12} />, action: () => {
+          notes.filter(n => n.status === 'archived').forEach(n => setNoteStatus(n.id, 'active'));
+        }},
+        { label: 'Delete All', icon: <Trash size={12} />, danger: true, action: () => {
+          if (confirm('Permanently delete all archived notes? This cannot be undone.'))
+            notes.filter(n => n.status === 'archived').forEach(n => permanentlyDeleteNote(n.id));
+        }},
+      ],
+    },
+    {
+      id: { type: 'trash' }, icon: <Trash2 size={13} />, label: 'Trash', count: counts.trash,
+      ctx: [
+        { label: 'Empty Trash', icon: <Trash size={12} />, danger: true, action: () => {
+          if (confirm('Permanently delete all trashed notes? This cannot be undone.'))
+            notes.filter(n => n.status === 'trashed').forEach(n => permanentlyDeleteNote(n.id));
+        }},
+      ],
+    },
   ];
+
   const taskItems: NavItem[] = [
-    { id: { type: 'tasks-inbox' },    icon: <ListTodo size={13} />,  label: 'Inbox',     count: taskCounts.inbox    },
-    { id: { type: 'tasks-today' },    icon: <Clock size={13} />,     label: 'Today',     count: taskCounts.today    },
-    { id: { type: 'tasks-upcoming' }, icon: <Calendar size={13} />,  label: 'Upcoming',  count: taskCounts.upcoming },
-    { id: { type: 'tasks-done' },     icon: <CheckCheck size={13} />,label: 'Completed', count: taskCounts.done     },
+    {
+      id: { type: 'tasks-inbox' }, icon: <ListTodo size={13} />, label: 'Inbox', count: taskCounts.inbox,
+      ctx: [
+        { label: 'New Task Note', icon: <FilePlus size={12} />, action: () => createTaskNote() },
+      ],
+    },
+    {
+      id: { type: 'tasks-today' }, icon: <Clock size={13} />, label: 'Today', count: taskCounts.today,
+      ctx: [
+        { label: 'New Task Note (Due Today)', icon: <FilePlus size={12} />, action: async () => {
+          await createTaskNote();
+          const state = useNotesStore.getState();
+          const newestNote = state.notes.find(n => n.status === 'active');
+          if (!newestNote) return;
+          const todayTasks = Object.values(state.tasks).filter(t => t.noteId === newestNote.id);
+          const today = new Date(); today.setHours(0, 0, 0, 0);
+          todayTasks.forEach(t => setTaskDueDate(t.id, today.toISOString()));
+        }},
+      ],
+    },
+    {
+      id: { type: 'tasks-upcoming' }, icon: <Calendar size={13} />, label: 'Upcoming', count: taskCounts.upcoming,
+      ctx: [
+        { label: 'New Task Note', icon: <FilePlus size={12} />, action: () => createTaskNote() },
+      ],
+    },
+    {
+      id: { type: 'tasks-done' }, icon: <CheckCheck size={13} />, label: 'Completed', count: taskCounts.done,
+      ctx: [
+        { label: 'Clear Completed Notes', icon: <Trash size={12} />, danger: true, action: () => {
+          if (confirm('Permanently delete all notes that only contain completed tasks? This cannot be undone.')) {
+            const state = useNotesStore.getState();
+            notes.filter(n => n.status === 'active').forEach(n => {
+              const noteTasks = Object.values(state.tasks).filter(t => t.noteId === n.id);
+              if (noteTasks.length > 0 && noteTasks.every(t => t.completed))
+                permanentlyDeleteNote(n.id);
+            });
+          }
+        }},
+      ],
+    },
   ];
 
   return (
+    <>
     <aside className="w-[200px] shrink-0 flex flex-col h-full bg-sidebar border-r border-sidebar-border select-none overflow-hidden">
       {/* Branding */}
       <div className="flex items-center gap-1.5 px-3 py-2.5 border-b border-sidebar-border">
@@ -195,7 +297,9 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
         {noteItems.map(item => {
           const active = isSectionActive(item.id);
           return (
-            <button key={item.id.type} onClick={() => setActiveSection(item.id)}
+            <button key={item.id.type}
+              onClick={() => setActiveSection(item.id)}
+              onContextMenu={e => openCtx(e, item.ctx)}
               className={cn("w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-[12px] transition-colors",
                 active
                   ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
@@ -216,7 +320,9 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
         {taskItems.map(item => {
           const active = isSectionActive(item.id);
           return (
-            <button key={item.id.type} onClick={() => setActiveSection(item.id)}
+            <button key={item.id.type}
+              onClick={() => setActiveSection(item.id)}
+              onContextMenu={e => openCtx(e, item.ctx)}
               className={cn("w-full flex items-center gap-1.5 px-2 py-1 rounded-md text-[12px] transition-colors",
                 active
                   ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
@@ -245,8 +351,19 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
                   const tagSection: SidebarSection = { type: 'tag', tag };
                   const active = activeSection.type === 'tag' && (activeSection as any).tag === tag;
                   const count = notes.filter(n => n.status === 'active' && n.tags.includes(tag)).length;
+                  const tagCtx: CtxItem[] = [
+                    { label: `Filter by #${tag}`, icon: <TagIcon size={12} />, action: () => setActiveSection(tagSection) },
+                    { label: 'Delete Tag', icon: <Trash size={12} />, danger: true, action: () => {
+                      if (confirm(`Remove tag "#${tag}" from all notes?`))
+                        notes.filter(n => n.tags.includes(tag)).forEach(n =>
+                          setTags(n.id, n.tags.filter(t => t !== tag))
+                        );
+                    }},
+                  ];
                   return (
-                    <button key={tag} onClick={() => setActiveSection(tagSection)}
+                    <button key={tag}
+                      onClick={() => setActiveSection(tagSection)}
+                      onContextMenu={e => openCtx(e, tagCtx)}
                       className={cn("w-full flex items-center gap-1.5 pl-3.5 pr-2 py-1 rounded-md text-[11px] transition-colors",
                         active
                           ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
@@ -273,5 +390,31 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
         </div>
       )}
     </aside>
+
+    {/* ── Context menu overlay ─────────────────────────────────────── */}
+    {ctxMenu && (
+      <div
+        ref={ctxRef}
+        style={{ position: 'fixed', top: ctxMenu.y, left: ctxMenu.x, zIndex: 9999 }}
+        className="min-w-[160px] bg-popover border border-border rounded-lg shadow-xl py-1 animate-in fade-in zoom-in-95 duration-100"
+      >
+        {ctxMenu.items.map((item, i) => (
+          <button
+            key={i}
+            onClick={() => runCtx(item.action)}
+            className={cn(
+              "w-full flex items-center gap-2 px-3 py-1.5 text-[12px] transition-colors text-left",
+              item.danger
+                ? "text-destructive hover:bg-destructive/10"
+                : "text-popover-foreground hover:bg-muted"
+            )}
+          >
+            <span className="opacity-60">{item.icon}</span>
+            {item.label}
+          </button>
+        ))}
+      </div>
+    )}
+    </>
   );
 }
