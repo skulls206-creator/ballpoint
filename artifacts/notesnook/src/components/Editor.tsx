@@ -343,6 +343,7 @@ export function Editor() {
   const [showPreview, setShowPreview] = useState(false);
   const [titleValue, setTitleValue]   = useState('');
   const titleRef    = useRef<HTMLInputElement>(null);
+  const textareaRef  = useRef<HTMLTextAreaElement>(null);
   const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   // Compute activeNote locally — notes is a stable ref until refreshNotes() replaces it
@@ -526,6 +527,11 @@ export function Editor() {
         </div>
       </header>
 
+      {/* ── Markdown Toolbar ── */}
+      {!isReadOnly && (
+        <MarkdownToolbar textareaRef={textareaRef} onChange={handleContentChange} />
+      )}
+
       {/* ── Reminder fired banner ── */}
       {activeNote.reminderStatus === 'fired' && (
         <div className="mx-4 mt-2 flex items-center gap-2 px-3 py-1.5 rounded-lg bg-orange-400/10 border border-orange-400/20 text-[11px] text-orange-400 shrink-0">
@@ -544,6 +550,7 @@ export function Editor() {
       <div className="flex-1 flex overflow-hidden">
         <div className={cn("flex-1 flex flex-col min-w-0", showPreview && "hidden lg:flex lg:w-1/2 lg:flex-none")}>
           <textarea
+            ref={textareaRef}
             value={activeContent}
             onChange={e => handleContentChange(e.target.value)}
             disabled={isReadOnly}
