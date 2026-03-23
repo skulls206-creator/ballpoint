@@ -1,107 +1,67 @@
-import { motion } from "framer-motion";
-import { FolderOpen, HardDrive, Shield, Zap } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { useNotesStore } from "@/lib/store";
-import { useAuth } from "@/lib/authContext";
-import { isFileSystemSupported } from "@/lib/fileSystem";
+import { FolderOpen, HardDrive, Shield, Zap, Lock } from 'lucide-react';
+import { useNotesStore } from '../lib/store';
+import { useAuth } from '../lib/authContext';
+import { isFileSystemSupported } from '../lib/fileSystem';
 
 export function WelcomeScreen() {
   const { openNewVault } = useNotesStore();
   const { user } = useAuth();
 
-  const handleOpen = () => {
-    if (user) openNewVault(user.id);
-  };
-
   return (
-    <div className="min-h-screen w-full flex flex-col relative overflow-hidden bg-background">
-      {/* Background */}
-      <div className="absolute inset-0 z-0">
-        <img
-          src={`${import.meta.env.BASE_URL}images/hero-bg.png`}
-          alt="Hero background"
-          className="w-full h-full object-cover opacity-60 dark:opacity-30 mix-blend-overlay"
-        />
-        <div className="absolute inset-0 bg-gradient-to-b from-background/80 via-background/95 to-background" />
-      </div>
+    <div className="flex-1 flex flex-col items-center justify-center bg-background px-6 py-12">
+      <div className="max-w-sm w-full text-center space-y-6">
+        {/* Icon */}
+        <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20">
+          <Zap size={22} strokeWidth={1.5} />
+        </div>
 
-      <div className="flex-1 flex flex-col items-center justify-center relative z-10 px-4">
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, ease: "easeOut" }}
-          className="max-w-2xl w-full space-y-12 text-center"
-        >
-          <div className="space-y-6">
-            <div className="inline-flex items-center justify-center p-4 rounded-3xl bg-primary/10 text-primary mb-4 ring-1 ring-primary/20 shadow-2xl shadow-primary/20">
-              <Zap className="w-12 h-12" strokeWidth={1.5} />
-            </div>
-            <h1 className="text-5xl md:text-7xl font-bold tracking-tight text-foreground">
-              Local<span className="text-primary">Notes</span>
-            </h1>
-            <p className="text-xl md:text-2xl text-muted-foreground max-w-xl mx-auto font-light leading-relaxed">
-              Choose a folder on your computer to start writing.
+        {/* Heading */}
+        <div className="space-y-1.5">
+          <h1 className="text-xl font-bold text-foreground tracking-tight">
+            Local<span className="text-primary">Notes</span>
+          </h1>
+          <p className="text-sm text-muted-foreground leading-relaxed">
+            Select a folder on your computer to store your notes as plain Markdown files.
+          </p>
+          {user && (
+            <p className="text-xs text-muted-foreground/60">
+              Logged in as <span className="font-medium text-foreground/70">{user.email}</span>
             </p>
-            {user && (
-              <p className="text-sm text-muted-foreground/70">
-                Signed in as <span className="font-medium text-foreground/80">{user.email}</span>
-              </p>
-            )}
-          </div>
-
-          {!isFileSystemSupported ? (
-            <div className="bg-destructive/10 text-destructive p-6 rounded-2xl border border-destructive/20 text-left max-w-lg mx-auto">
-              <h3 className="font-bold flex items-center gap-2 mb-2">
-                <Shield className="w-5 h-5" /> Browser Not Supported
-              </h3>
-              <p className="text-sm opacity-90">
-                Your browser doesn't support the File System Access API. Please use Chrome, Edge, or a Chromium-based browser.
-              </p>
-            </div>
-          ) : (
-            <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
-              <Button
-                onClick={handleOpen}
-                size="lg"
-                className="h-16 px-10 rounded-2xl text-lg font-medium shadow-xl shadow-primary/25 hover:shadow-primary/40 transition-all"
-              >
-                <FolderOpen className="mr-3 w-6 h-6" />
-                Select Notes Folder
-              </Button>
-            </motion.div>
           )}
+        </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-12 max-w-3xl mx-auto">
-            <Feature
-              icon={<HardDrive />}
-              title="100% Local"
-              description="Notes are saved as plain .md files on your hard drive."
-            />
-            <Feature
-              icon={<Shield />}
-              title="Private by Design"
-              description="No servers, no accounts for your notes. Pure privacy."
-            />
-            <Feature
-              icon={<Zap />}
-              title="Blazing Fast"
-              description="Offline-first architecture means instant loading times."
-            />
+        {/* Action */}
+        {!isFileSystemSupported ? (
+          <div className="bg-destructive/10 text-destructive p-4 rounded-lg border border-destructive/20 text-left">
+            <h3 className="font-semibold text-sm flex items-center gap-2 mb-1">
+              <Shield size={14} /> Browser not supported
+            </h3>
+            <p className="text-xs opacity-80">Use Chrome, Edge, or a Chromium-based browser for File System Access API support.</p>
           </div>
-        </motion.div>
-      </div>
-    </div>
-  );
-}
+        ) : (
+          <button
+            onClick={() => user && openNewVault(user.id)}
+            className="w-full h-9 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center justify-center gap-2 hover:opacity-90 active:opacity-80 transition-opacity shadow-sm shadow-primary/20"
+          >
+            <FolderOpen size={15} /> Select Notes Folder
+          </button>
+        )}
 
-function Feature({ icon, title, description }: { icon: React.ReactNode, title: string, description: string }) {
-  return (
-    <div className="flex flex-col items-center text-center space-y-3 p-6 rounded-2xl bg-card/50 backdrop-blur-sm border border-border/50">
-      <div className="p-3 rounded-full bg-secondary text-foreground">
-        {icon}
+        {/* Feature grid */}
+        <div className="grid grid-cols-3 gap-3 pt-2">
+          {[
+            { icon: <HardDrive size={13} />, label: '100% Local', desc: '.md files on disk' },
+            { icon: <Lock size={13} />,      label: 'Private',    desc: 'No cloud sync'    },
+            { icon: <Zap size={13} />,       label: 'Offline',    desc: 'Works everywhere' },
+          ].map(f => (
+            <div key={f.label} className="flex flex-col items-center gap-1 p-3 rounded-lg bg-muted/40 border border-border/40">
+              <span className="text-primary">{f.icon}</span>
+              <span className="text-[10px] font-semibold text-foreground/80">{f.label}</span>
+              <span className="text-[9px] text-muted-foreground">{f.desc}</span>
+            </div>
+          ))}
+        </div>
       </div>
-      <h3 className="font-semibold text-foreground">{title}</h3>
-      <p className="text-sm text-muted-foreground">{description}</p>
     </div>
   );
 }

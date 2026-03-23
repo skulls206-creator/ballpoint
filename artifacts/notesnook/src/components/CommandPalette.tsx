@@ -1,64 +1,89 @@
-import { useEffect, useState } from "react";
-import { FileText, Search } from "lucide-react";
-import { useNotesStore } from "@/lib/store";
+import { useEffect } from 'react';
+import { FileText, Star, Archive, Search } from 'lucide-react';
+import { useNotesStore } from '../lib/store';
 import {
-  CommandDialog,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
+  CommandDialog, CommandEmpty, CommandGroup,
+  CommandInput, CommandItem, CommandList,
+} from './ui/command';
 
-export function CommandPalette({ 
-  open, 
-  onOpenChange 
-}: { 
-  open: boolean; 
-  onOpenChange: (open: boolean) => void 
-}) {
-  const { notes, selectNote } = useNotesStore();
+export function CommandPalette({ open, onOpenChange }: { open: boolean; onOpenChange: (open: boolean) => void }) {
+  const { notes, selectNote, setActiveSection } = useNotesStore();
 
   useEffect(() => {
-    const down = (e: KeyboardEvent) => {
-      if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        onOpenChange(true);
-      }
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'k' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); onOpenChange(true); }
     };
-
-    document.addEventListener("keydown", down);
-    return () => document.removeEventListener("keydown", down);
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
   }, [onOpenChange]);
 
-  const runCommand = (command: () => void) => {
-    onOpenChange(false);
-    command();
-  };
+  const run = (fn: () => void) => { onOpenChange(false); fn(); };
+
+  const activeNotes = notes.filter(n => n.status === 'active');
+  const favoriteNotes = notes.filter(n => n.status === 'active' && n.isFavorite);
+  const archivedNotes = notes.filter(n => n.status === 'archived');
 
   return (
     <CommandDialog open={open} onOpenChange={onOpenChange}>
-      <div className="border-b border-border px-3 pb-0">
-         <CommandInput placeholder="Type a command or search notes..." className="border-none focus:ring-0 text-lg h-14" />
+      <div className="border-b border-border">
+        <CommandInput placeholder="Search notes, tags, commands..." className="border-0 h-10 text-sm" />
       </div>
-      <CommandList className="py-2 max-h-[60vh]">
-        <CommandEmpty className="py-6 text-center text-muted-foreground">
-          <Search className="w-10 h-10 mx-auto mb-3 opacity-20" />
-          No results found.
+      <CommandList className="max-h-[60vh]">
+        <CommandEmpty className="py-8 text-center text-muted-foreground">
+          <Search size={28} className="mx-auto mb-2 opacity-20" />
+          <p className="text-sm">No results found</p>
         </CommandEmpty>
-        <CommandGroup heading="Your Notes" className="text-muted-foreground px-2">
-          {notes.map((note) => (
-            <CommandItem
-              key={note.id}
-              value={note.title}
-              onSelect={() => runCommand(() => selectNote(note.id))}
-              className="flex items-center gap-3 px-4 py-3 cursor-pointer rounded-xl my-1 aria-selected:bg-primary/10 aria-selected:text-primary transition-colors"
-            >
-              <FileText className="w-4 h-4 opacity-70" />
-              <span className="font-medium text-foreground">{note.title}</span>
+
+        {favoriteNotes.length > 0 && (
+          <CommandGroup heading="Favorites">
+            {favoriteNotes.map(note => (
+              <CommandItem key={note.id} value={`fav-${note.title}-${note.id}`}
+                onSelect={() => run(() => { setActiveSection({ type: 'all' }); selectNote(note.id); })}
+                className="flex items-center gap-2 cursor-pointer py-1.5">
+                <Star size={12} className="text-primary fill-primary shrink-0" />
+                <span className="text-sm">{note.title}</span>
+                {note.tags.length > 0 && (
+                  <div className="ml-auto flex gap-1">
+                    {note.tags.slice(0, 2).map(t => (
+                      <span key={t} className="text-[9px] px-1 py-0.5 rounded bg-primary/10 text-primary/70">{t}</span>
+                    ))}
+                  </div>
+                )}
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
+
+        <CommandGroup heading="Notes">
+          {activeNotes.map(note => (
+            <CommandItem key={note.id} value={`note-${note.title}-${note.tags.join(',')}-${note.id}`}
+              onSelect={() => run(() => { setActiveSection({ type: 'all' }); selectNote(note.id); })}
+              className="flex items-center gap-2 cursor-pointer py-1.5">
+              <FileText size={12} className="text-muted-foreground shrink-0" />
+              <span className="text-sm">{note.title}</span>
+              {note.tags.length > 0 && (
+                <div className="ml-auto flex gap-1">
+                  {note.tags.slice(0, 2).map(t => (
+                    <span key={t} className="text-[9px] px-1 py-0.5 rounded bg-primary/10 text-primary/70">{t}</span>
+                  ))}
+                </div>
+              )}
             </CommandItem>
           ))}
         </CommandGroup>
+
+        {archivedNotes.length > 0 && (
+          <CommandGroup heading="Archive">
+            {archivedNotes.map(note => (
+              <CommandItem key={note.id} value={`arch-${note.title}-${note.id}`}
+                onSelect={() => run(() => { setActiveSection({ type: 'archive' }); selectNote(note.id); })}
+                className="flex items-center gap-2 cursor-pointer py-1.5 opacity-70">
+                <Archive size={12} className="text-muted-foreground shrink-0" />
+                <span className="text-sm">{note.title}</span>
+              </CommandItem>
+            ))}
+          </CommandGroup>
+        )}
       </CommandList>
     </CommandDialog>
   );

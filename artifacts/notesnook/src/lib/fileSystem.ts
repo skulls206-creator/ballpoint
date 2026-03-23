@@ -1,4 +1,5 @@
 import { get, set, del } from 'idb-keyval';
+import type { NoteStatus, ReminderStatus } from './metadata';
 
 export const isFileSystemSupported = 'showDirectoryPicker' in window;
 
@@ -8,27 +9,31 @@ export interface NoteFile {
   name: string;
   title: string;
   lastModified: number;
+  // Merged from metadata
+  isFavorite: boolean;
+  status: NoteStatus;
+  tags: string[];
+  hasReminder: boolean;
+  reminderTime?: string;
+  reminderStatus?: ReminderStatus;
 }
 
-// Vault is keyed per user so each account has its own folder
 function vaultKey(userId: number) {
-  return `notesnook-vault-${userId}`;
+  return `localnotes-vault-${userId}`;
 }
 
-async function verifyPermission(fileHandle: FileSystemHandle, readWrite: boolean): Promise<boolean> {
-  const options: FileSystemHandlePermissionDescriptor = {
-    mode: readWrite ? 'readwrite' : 'read'
-  };
-  if ((await fileHandle.queryPermission(options)) === 'granted') return true;
-  if ((await fileHandle.requestPermission(options)) === 'granted') return true;
+async function verifyPermission(handle: FileSystemHandle, readWrite: boolean): Promise<boolean> {
+  const opts: FileSystemHandlePermissionDescriptor = { mode: readWrite ? 'readwrite' : 'read' };
+  if ((await handle.queryPermission(opts)) === 'granted') return true;
+  if ((await handle.requestPermission(opts)) === 'granted') return true;
   return false;
 }
 
 export async function openVault(userId: number): Promise<FileSystemDirectoryHandle | null> {
   try {
-    const dirHandle = await window.showDirectoryPicker({ mode: 'readwrite' });
-    await set(vaultKey(userId), dirHandle);
-    return dirHandle;
+    const dir = await window.showDirectoryPicker({ mode: 'readwrite' });
+    await set(vaultKey(userId), dir);
+    return dir;
   } catch {
     return null;
   }
@@ -36,11 +41,8 @@ export async function openVault(userId: number): Promise<FileSystemDirectoryHand
 
 export async function loadVault(userId: number): Promise<FileSystemDirectoryHandle | null> {
   try {
-    const dirHandle = await get<FileSystemDirectoryHandle>(vaultKey(userId));
-    if (dirHandle) {
-      const hasPermission = await verifyPermission(dirHandle, true);
-      if (hasPermission) return dirHandle;
-    }
+    const dir = await get<FileSystemDirectoryHandle>(vaultKey(userId));
+    if (dir && await verifyPermission(dir, true)) return dir;
     return null;
   } catch {
     return null;
@@ -51,13 +53,13 @@ export async function clearVault(userId: number) {
   await del(vaultKey(userId));
 }
 
-export async function scanFolder(dirHandle: FileSystemDirectoryHandle): Promise<NoteFile[]> {
-  const notes: NoteFile[] = [];
+export async function scanFolder(dirHandle: FileSystemDirectoryHandle): Promise<Pick<NoteFile, 'id' | 'handle' | 'name' | 'title' | 'lastModified'>[]> {
+  const results: Pick<NoteFile, 'id' | 'handle' | 'name' | 'title' | 'lastModified'>[] = [];
   try {
     for await (const entry of (dirHandle as any).values()) {
       if (entry.kind === 'file' && (entry.name.endsWith('.md') || entry.name.endsWith('.txt'))) {
         const file = await entry.getFile();
-        notes.push({
+        results.push({
           id: entry.name,
           handle: entry,
           name: entry.name,
@@ -66,7 +68,7 @@ export async function scanFolder(dirHandle: FileSystemDirectoryHandle): Promise<
         });
       }
     }
-    return notes.sort((a, b) => b.lastModified - a.lastModified);
+    return results.sort((a, b) => b.lastModified - a.lastModified);
   } catch {
     return [];
   }
@@ -74,7 +76,7 @@ export async function scanFolder(dirHandle: FileSystemDirectoryHandle): Promise<
 
 export async function readNote(handle: FileSystemFileHandle): Promise<string> {
   const file = await handle.getFile();
-  return await file.text();
+  return file.text();
 }
 
 export async function saveNote(handle: FileSystemFileHandle, content: string): Promise<void> {
@@ -84,8 +86,8 @@ export async function saveNote(handle: FileSystemFileHandle, content: string): P
 }
 
 export async function createNote(dirHandle: FileSystemDirectoryHandle, title: string): Promise<FileSystemFileHandle> {
-  const safeTitle = title.replace(/[/\\?%*:|"<>]/g, '-');
-  return await dirHandle.getFileHandle(`${safeTitle}.md`, { create: true });
+  const safe = title.replace(/[/\\?%*:|"<>]/g, '-');
+  return dirHandle.getFileHandle(`${safe}.md`, { create: true });
 }
 
 export async function renameNote(
@@ -93,11 +95,11 @@ export async function renameNote(
   oldHandle: FileSystemFileHandle,
   newTitle: string
 ): Promise<FileSystemFileHandle> {
-  const safeTitle = newTitle.replace(/[/\\?%*:|"<>]/g, '-');
-  const newName = `${safeTitle}.md`;
+  const safe = newTitle.replace(/[/\\?%*:|"<>]/g, '-');
+  const newName = `${safe}.md`;
   if (oldHandle.name === newName) return oldHandle;
   const content = await readNote(oldHandle);
-  const newHandle = await createNote(dirHandle, safeTitle);
+  const newHandle = await createNote(dirHandle, safe);
   await saveNote(newHandle, content);
   await dirHandle.removeEntry(oldHandle.name);
   return newHandle;

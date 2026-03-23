@@ -1,138 +1,229 @@
-import { useState } from "react";
-import { format } from "date-fns";
-import { FileText, MoreVertical, Trash2, Edit2 } from "lucide-react";
-import { useNotesStore } from "@/lib/store";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Input } from "@/components/ui/input";
-import { 
-  DropdownMenu, 
-  DropdownMenuContent, 
-  DropdownMenuItem, 
-  DropdownMenuTrigger 
-} from "@/components/ui/dropdown-menu";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { motion, AnimatePresence } from "framer-motion";
+import { useState, useRef, useEffect } from 'react';
+import { formatDistanceToNow } from 'date-fns';
+import {
+  Star, MoreHorizontal, Trash2, Edit2, Archive, RotateCcw,
+  Trash, FileText, Bell,
+} from 'lucide-react';
+import { useNotesStore, selectFilteredNotes } from '../lib/store';
+import { cn } from '../lib/utils';
 
 export function NoteList() {
-  const { notes, activeNoteId, selectNote, searchQuery, setSearchQuery, removeNote, changeNoteTitle } = useNotesStore();
-  
+  const {
+    activeNoteId, selectNote, searchQuery, setSearchQuery,
+    trashNote, restoreNote, permanentlyDeleteNote, toggleFavorite,
+    setNoteStatus, activeSection, renameNote,
+  } = useNotesStore();
+  const notes = useNotesStore(selectFilteredNotes);
+
   const [renamingId, setRenamingId] = useState<string | null>(null);
-  const [renameValue, setRenameValue] = useState("");
+  const [renameValue, setRenameValue] = useState('');
+  const [menuId, setMenuId] = useState<string | null>(null);
+  const renameRef = useRef<HTMLInputElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
-  const filteredNotes = notes.filter(n => 
-    n.title.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  useEffect(() => { if (renamingId) renameRef.current?.focus(); }, [renamingId]);
 
-  const handleRenameSubmit = () => {
-    if (renamingId && renameValue.trim()) {
-      changeNoteTitle(renamingId, renameValue.trim());
-    }
-    setRenamingId(null);
-  };
+  // Close menu on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuId(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const inTrash = activeSection.type === 'trash';
+  const inArchive = activeSection.type === 'archive';
+
+  const sectionTitle =
+    activeSection.type === 'all' ? 'Notes'
+    : activeSection.type === 'favorites' ? 'Favorites'
+    : activeSection.type === 'archive' ? 'Archive'
+    : activeSection.type === 'trash' ? 'Trash'
+    : `#${(activeSection as any).tag}`;
 
   return (
-    <div className="w-[300px] hidden lg:flex flex-col h-screen border-r border-border bg-card/50 backdrop-blur-sm flex-shrink-0">
-      <div className="p-4 border-b border-border/50 bg-card/50 backdrop-blur-md sticky top-0 z-10">
-        <Input 
-          placeholder="Search notes..." 
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="bg-background/50 border-border/50 rounded-xl h-10 shadow-inner"
-        />
-      </div>
-
-      <ScrollArea className="flex-1 px-3 py-3">
-        <div className="space-y-1">
-          <AnimatePresence initial={false}>
-            {filteredNotes.map((note) => {
-              const isActive = activeNoteId === note.id;
-              
-              return (
-                <motion.div
-                  layout
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.95 }}
-                  key={note.id}
-                  onClick={() => selectNote(note.id)}
-                  className={`
-                    group relative p-3 rounded-xl cursor-pointer transition-all duration-200
-                    ${isActive 
-                      ? 'bg-primary text-primary-foreground shadow-md shadow-primary/20' 
-                      : 'hover:bg-accent hover:text-accent-foreground text-foreground/80'}
-                  `}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <h4 className="font-medium text-sm truncate flex items-center gap-2">
-                        <FileText className={`w-4 h-4 shrink-0 ${isActive ? 'text-primary-foreground/80' : 'text-muted-foreground'}`} />
-                        {note.title}
-                      </h4>
-                      <div className={`text-xs mt-1 truncate ${isActive ? 'text-primary-foreground/70' : 'text-muted-foreground'}`}>
-                        {format(new Date(note.lastModified), 'MMM d, yyyy h:mm a')}
-                      </div>
-                    </div>
-                    
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
-                        <button className={`
-                          p-1.5 rounded-md opacity-0 group-hover:opacity-100 transition-opacity
-                          ${isActive ? 'hover:bg-primary-foreground/20' : 'hover:bg-background'}
-                        `}>
-                          <MoreVertical className="w-4 h-4" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end" className="w-40 rounded-xl">
-                        <DropdownMenuItem 
-                          onClick={(e) => { e.stopPropagation(); setRenamingId(note.id); setRenameValue(note.title); }}
-                          className="cursor-pointer"
-                        >
-                          <Edit2 className="w-4 h-4 mr-2" /> Rename
-                        </DropdownMenuItem>
-                        <DropdownMenuItem 
-                          onClick={(e) => { e.stopPropagation(); removeNote(note.id); }}
-                          className="cursor-pointer text-destructive focus:bg-destructive/10"
-                        >
-                          <Trash2 className="w-4 h-4 mr-2" /> Delete
-                        </DropdownMenuItem>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </motion.div>
-              );
-            })}
-          </AnimatePresence>
-
-          {filteredNotes.length === 0 && (
-            <div className="text-center py-12 text-muted-foreground flex flex-col items-center">
-              <FileText className="w-12 h-12 mb-3 opacity-20" />
-              <p className="text-sm font-medium">No notes found</p>
-            </div>
+    <div className="w-[240px] shrink-0 flex flex-col h-full border-r border-border bg-card/40 overflow-hidden">
+      {/* Header */}
+      <div className="px-3 py-2 border-b border-border/60 space-y-1.5 shrink-0">
+        <div className="flex items-center justify-between">
+          <span className="text-[11px] font-semibold text-foreground/60 uppercase tracking-wider">{sectionTitle}</span>
+          <span className="text-[10px] text-muted-foreground tabular-nums">{notes.length}</span>
+        </div>
+        <div className="relative">
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={e => setSearchQuery(e.target.value)}
+            placeholder="Search..."
+            className="w-full h-6 pl-2 pr-6 text-[11px] bg-muted/60 border-0 rounded-md outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/50"
+          />
+          {searchQuery && (
+            <button onClick={() => setSearchQuery('')}
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground">
+              <span className="text-[10px]">✕</span>
+            </button>
           )}
         </div>
-      </ScrollArea>
+      </div>
 
-      <Dialog open={!!renamingId} onOpenChange={(open) => !open && setRenamingId(null)}>
-        <DialogContent className="sm:max-w-md rounded-2xl">
-          <DialogHeader>
-            <DialogTitle>Rename Note</DialogTitle>
-          </DialogHeader>
-          <div className="py-4">
-            <Input 
-              value={renameValue} 
-              onChange={(e) => setRenameValue(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleRenameSubmit()}
-              className="rounded-xl h-12"
-              autoFocus
-            />
+      {/* Note list */}
+      <div className="flex-1 overflow-y-auto py-1">
+        {notes.length === 0 ? (
+          <div className="flex flex-col items-center justify-center h-full text-muted-foreground/40 px-4 text-center">
+            <FileText size={28} className="mb-2 opacity-30" />
+            <p className="text-[11px]">
+              {searchQuery ? 'No matching notes' : inTrash ? 'Trash is empty' : inArchive ? 'No archived notes' : 'No notes yet'}
+            </p>
           </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setRenamingId(null)} className="rounded-xl">Cancel</Button>
-            <Button onClick={handleRenameSubmit} className="rounded-xl bg-primary text-primary-foreground">Save Changes</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        ) : (
+          notes.map(note => {
+            const isActive = activeNoteId === note.id;
+            const isMenuOpen = menuId === note.id;
+            const isRenaming = renamingId === note.id;
+
+            return (
+              <div
+                key={note.id}
+                onClick={() => !inTrash && selectNote(note.id)}
+                className={cn(
+                  "group relative px-3 py-2 transition-colors cursor-default border-b border-border/30",
+                  isActive
+                    ? "bg-accent/60 border-l-2 border-l-primary"
+                    : !inTrash
+                    ? "hover:bg-muted/50 cursor-pointer"
+                    : ""
+                )}
+              >
+                {/* Title row */}
+                <div className="flex items-center gap-1 min-w-0">
+                  {note.isFavorite && <Star size={10} className="text-primary shrink-0 fill-primary" />}
+                  {note.hasReminder && note.reminderStatus === 'fired' && (
+                    <Bell size={10} className="text-orange-400 shrink-0" />
+                  )}
+                  {isRenaming ? (
+                    <input
+                      ref={renameRef}
+                      value={renameValue}
+                      onChange={e => setRenameValue(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') { renameNote(note.id, renameValue); setRenamingId(null); }
+                        if (e.key === 'Escape') setRenamingId(null);
+                      }}
+                      onBlur={() => { renameNote(note.id, renameValue); setRenamingId(null); }}
+                      onClick={e => e.stopPropagation()}
+                      className="flex-1 text-[12px] font-medium bg-transparent border-b border-primary outline-none"
+                    />
+                  ) : (
+                    <span className={cn("flex-1 text-[12px] font-medium truncate", isActive ? "text-foreground" : "text-foreground/80")}>
+                      {note.title}
+                    </span>
+                  )}
+
+                  {/* Context menu trigger */}
+                  <div className="relative" ref={isMenuOpen ? menuRef : undefined}>
+                    <button
+                      onClick={e => { e.stopPropagation(); setMenuId(isMenuOpen ? null : note.id); }}
+                      className={cn(
+                        "p-0.5 rounded transition-opacity text-muted-foreground hover:text-foreground",
+                        isMenuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                      )}
+                    >
+                      <MoreHorizontal size={12} />
+                    </button>
+
+                    {isMenuOpen && (
+                      <div ref={menuRef} className="absolute right-0 top-5 z-50 w-36 bg-popover border border-popover-border rounded-lg shadow-lg py-0.5 text-[11px]" onClick={e => e.stopPropagation()}>
+                        {!inTrash && !inArchive && (
+                          <>
+                            <button onClick={() => { toggleFavorite(note.id); setMenuId(null); }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-muted transition-colors">
+                              <Star size={11} className={note.isFavorite ? "fill-primary text-primary" : ""} />
+                              {note.isFavorite ? 'Unfavorite' : 'Favorite'}
+                            </button>
+                            <button onClick={() => { setRenamingId(note.id); setRenameValue(note.title); setMenuId(null); }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-muted transition-colors">
+                              <Edit2 size={11} /> Rename
+                            </button>
+                            <button onClick={() => { setNoteStatus(note.id, 'archived'); setMenuId(null); }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-muted transition-colors">
+                              <Archive size={11} /> Archive
+                            </button>
+                            <div className="my-0.5 border-t border-border" />
+                            <button onClick={() => { trashNote(note.id); setMenuId(null); }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-destructive/10 text-destructive transition-colors">
+                              <Trash2 size={11} /> Move to Trash
+                            </button>
+                          </>
+                        )}
+                        {inArchive && (
+                          <>
+                            <button onClick={() => { restoreNote(note.id); setMenuId(null); }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-muted transition-colors">
+                              <RotateCcw size={11} /> Restore
+                            </button>
+                            <button onClick={() => { trashNote(note.id); setMenuId(null); }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-destructive/10 text-destructive transition-colors">
+                              <Trash2 size={11} /> Move to Trash
+                            </button>
+                          </>
+                        )}
+                        {inTrash && (
+                          <>
+                            <button onClick={() => { restoreNote(note.id); setMenuId(null); }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-muted transition-colors">
+                              <RotateCcw size={11} /> Restore
+                            </button>
+                            <button onClick={() => { permanentlyDeleteNote(note.id); setMenuId(null); }}
+                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-destructive/10 text-destructive transition-colors">
+                              <Trash size={11} /> Delete Forever
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Tags */}
+                {note.tags.length > 0 && (
+                  <div className="flex flex-wrap gap-0.5 mt-0.5">
+                    {note.tags.slice(0, 3).map(tag => (
+                      <span key={tag} className="text-[9px] px-1 py-px rounded bg-primary/10 text-primary/80 font-medium">
+                        {tag}
+                      </span>
+                    ))}
+                    {note.tags.length > 3 && (
+                      <span className="text-[9px] text-muted-foreground">+{note.tags.length - 3}</span>
+                    )}
+                  </div>
+                )}
+
+                {/* Date */}
+                <div className={cn("text-[10px] mt-0.5", isActive ? "text-muted-foreground/70" : "text-muted-foreground/50")}>
+                  {formatDistanceToNow(new Date(note.lastModified), { addSuffix: true })}
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {/* Trash actions */}
+      {inTrash && notes.length > 0 && (
+        <div className="px-3 py-2 border-t border-border shrink-0">
+          <button
+            onClick={() => {
+              if (confirm('Permanently delete all trashed notes? This cannot be undone.')) {
+                notes.forEach(n => permanentlyDeleteNote(n.id));
+              }
+            }}
+            className="w-full text-[11px] text-destructive/70 hover:text-destructive transition-colors py-1"
+          >
+            Empty Trash ({notes.length})
+          </button>
+        </div>
+      )}
     </div>
   );
 }

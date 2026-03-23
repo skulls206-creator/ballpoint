@@ -1,5 +1,5 @@
-// LocalNotes Service Worker - Offline-first cache strategy
-const CACHE_NAME = 'localnotes-v1';
+// LocalNotes Service Worker — offline-first + notification support
+const CACHE_NAME = 'localnotes-v2';
 const STATIC_ASSETS = [
   '/',
   '/manifest.webmanifest',
@@ -68,4 +68,28 @@ self.addEventListener('fetch', (event) => {
     );
     return;
   }
+});
+
+// ── Notification click → open/focus PWA and navigate to the note ─────────────
+// When the user clicks a reminder notification, we focus an existing window
+// (or open a new one) and send a message to open the specific note.
+self.addEventListener('notificationclick', event => {
+  const { noteId } = event.notification.data ?? {};
+  event.notification.close();
+
+  // 'dismiss' action = user just closes it without opening
+  if (event.action === 'dismiss') return;
+
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+      for (const client of clientList) {
+        if ('focus' in client) {
+          client.focus();
+          if (noteId) client.postMessage({ type: 'OPEN_NOTE', noteId });
+          return;
+        }
+      }
+      return clients.openWindow('/');
+    })
+  );
 });
