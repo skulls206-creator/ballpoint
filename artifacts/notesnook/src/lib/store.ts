@@ -600,9 +600,9 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         }
       } catch { /* skip unreadable */ }
       // Migrate existing plaintext snapshots → encrypted
-      reencryptVersions(userId, note.id, null, key).catch(() => {});
+      await reencryptVersions(userId, note.id, null, key).catch(() => {});
       // Migrate existing plaintext attachment files → encrypted
-      migrateNoteAttachments(vaultHandle, note.id, null, key).catch(() => {});
+      await migrateNoteAttachments(vaultHandle, note.id, null, key).catch(() => {});
     }
 
     set({ encryptionKey: key, isVaultEncrypted: true });
@@ -626,9 +626,9 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         }
       } catch { /* skip */ }
       // Migrate encrypted snapshots → plaintext
-      reencryptVersions(userId, note.id, encryptionKey, null).catch(() => {});
+      await reencryptVersions(userId, note.id, encryptionKey, null).catch(() => {});
       // Migrate encrypted attachment files → plaintext
-      migrateNoteAttachments(vaultHandle, note.id, encryptionKey, null).catch(() => {});
+      await migrateNoteAttachments(vaultHandle, note.id, encryptionKey, null).catch(() => {});
     }
 
     await deleteVaultFile(vaultHandle, VAULT_KEY_FILENAME);

@@ -105,8 +105,11 @@ export async function deleteAttachment(
 
 /**
  * Migrate all attachments for a note when encryption state changes.
- * fromKey=null means files are currently plain → encrypt with toKey.
- * toKey=null means files are currently encrypted → decrypt to plain.
+ * fromKey=null  → files are currently plain, encrypt with toKey.
+ * toKey=null    → files are currently encrypted, decrypt with fromKey.
+ *
+ * Re-fetches each file handle from the directory (not from entries())
+ * so the handle is guaranteed to have write permission.
  */
 export async function migrateNoteAttachments(
   vault: FileSystemDirectoryHandle,
@@ -114,34 +117,41 @@ export async function migrateNoteAttachments(
   fromKey: CryptoKey | null,
   toKey: CryptoKey | null
 ): Promise<void> {
+  let dir: FileSystemDirectoryHandle;
   try {
-    const dir = await getDir(vault, noteId);
+    dir = await getDir(vault, noteId);
+  } catch { return; } // folder doesn't exist — nothing to migrate
+
+  // Collect names first so we can re-fetch handles with write access
+  const names: string[] = [];
+  try {
     for await (const [name, handle] of (dir as any).entries()) {
-      if (handle.kind !== 'file') continue;
-      try {
-        const fh = handle as FileSystemFileHandle;
-        const file = await fh.getFile();
-        const data = new Uint8Array(await file.arrayBuffer());
-        const alreadyEncrypted = isEncryptedBytes(data);
-
-        let finalBytes: Uint8Array;
-        if (toKey && !alreadyEncrypted) {
-          // Encrypting: file is plain, encrypt it
-          finalBytes = await encryptBytes(data, toKey);
-        } else if (!toKey && alreadyEncrypted && fromKey) {
-          // Decrypting: file is encrypted, decrypt it
-          finalBytes = await decryptBytes(data, fromKey);
-        } else {
-          // Already in the right state
-          continue;
-        }
-
-        const writable = await (fh as any).createWritable();
-        await writable.write(finalBytes);
-        await writable.close();
-      } catch { /* skip individual file errors */ }
+      if ((handle as FileSystemHandle).kind === 'file') names.push(name);
     }
-  } catch { /* folder may not exist */ }
+  } catch { return; }
+
+  for (const name of names) {
+    try {
+      // Re-fetch from parent directory — guaranteed read+write
+      const fh = await dir.getFileHandle(name, { create: false });
+      const file = await fh.getFile();
+      const data = new Uint8Array(await file.arrayBuffer());
+      const alreadyEncrypted = isEncryptedBytes(data);
+
+      let finalBytes: Uint8Array;
+      if (toKey && !alreadyEncrypted) {
+        finalBytes = await encryptBytes(data, toKey);
+      } else if (!toKey && alreadyEncrypted && fromKey) {
+        finalBytes = await decryptBytes(data, fromKey);
+      } else {
+        continue; // already in the right state
+      }
+
+      const writable = await (fh as any).createWritable();
+      await writable.write(finalBytes);
+      await writable.close();
+    } catch { /* skip individual file errors */ }
+  }
 }
 
 export function isImageMime(mime: string): boolean {
