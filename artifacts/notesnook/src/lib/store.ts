@@ -16,7 +16,7 @@ import {
   VAULT_KEY_FILENAME, isEncrypted, encryptContent, decryptContent,
   createKeyFileContent, openKeyFile,
 } from './crypto';
-import { saveVersion } from './versions';
+import { saveVersion, reencryptVersions } from './versions';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -311,8 +311,8 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         ? await encryptContent(activeContent, encryptionKey)
         : activeContent;
       await saveNote(note.handle, contentToSave);
-      // Snapshot version (plain content, not the encrypted blob)
-      saveVersion(userId, activeNoteId, activeContent).catch(() => {});
+      // Snapshot version — encrypted at rest when vault has a key
+      saveVersion(userId, activeNoteId, activeContent, encryptionKey).catch(() => {});
       set({ isDirty: false });
       await get().refreshNotes();
       get().syncNoteTasks(activeNoteId, note.title, activeContent).catch(() => {});
@@ -589,7 +589,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const { key, content: keyContent } = await createKeyFileContent(password);
     await writeVaultFile(vaultHandle, VAULT_KEY_FILENAME, keyContent);
 
-    // Encrypt all existing note files
+    // Encrypt all existing note files AND their version snapshots in IndexedDB
     for (const note of notes) {
       try {
         const raw = await readNote(note.handle);
@@ -598,6 +598,8 @@ export const useNotesStore = create<NotesState>((set, get) => ({
           await saveNote(note.handle, enc);
         }
       } catch { /* skip unreadable */ }
+      // Migrate existing plaintext snapshots → encrypted
+      reencryptVersions(userId, note.id, null, key).catch(() => {});
     }
 
     set({ encryptionKey: key, isVaultEncrypted: true });
@@ -611,7 +613,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const { vaultHandle, userId, notes, encryptionKey } = get();
     if (!vaultHandle || !userId || !encryptionKey) return;
 
-    // Decrypt and rewrite every note file
+    // Decrypt and rewrite every note file AND their version snapshots
     for (const note of notes) {
       try {
         const raw = await readNote(note.handle);
@@ -620,6 +622,8 @@ export const useNotesStore = create<NotesState>((set, get) => ({
           await saveNote(note.handle, plain);
         }
       } catch { /* skip */ }
+      // Migrate encrypted snapshots → plaintext
+      reencryptVersions(userId, note.id, encryptionKey, null).catch(() => {});
     }
 
     await deleteVaultFile(vaultHandle, VAULT_KEY_FILENAME);

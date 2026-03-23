@@ -185,11 +185,13 @@ function MarkdownToolbar({
 function VersionHistory({
   noteId,
   userId,
+  encryptionKey,
   onRestore,
   onClose,
 }: {
   noteId: string;
   userId: number;
+  encryptionKey: CryptoKey | null;
   onRestore: (content: string) => void;
   onClose: () => void;
 }) {
@@ -199,10 +201,10 @@ function VersionHistory({
 
   useEffect(() => {
     setLoading(true);
-    loadVersions(userId, noteId)
+    loadVersions(userId, noteId, encryptionKey)
       .then(v => { setVersions([...v].reverse()); setLoading(false); })
       .catch(() => setLoading(false));
-  }, [userId, noteId]);
+  }, [userId, noteId, encryptionKey]);
 
   const previewHtml = useMemo(() => {
     if (!preview) return '';
@@ -545,7 +547,8 @@ export function Editor() {
   const restoreNote    = useNotesStore(s => s.restoreNote);
   const toggleTask     = useNotesStore(s => s.toggleTask);
 
-  const userId = useNotesStore(s => s.userId);
+  const userId        = useNotesStore(s => s.userId);
+  const encryptionKey = useNotesStore(s => s.encryptionKey);
 
   const [showPreview,  setShowPreview]  = useState(false);
   const [showHistory,  setShowHistory]  = useState(false);
@@ -796,6 +799,7 @@ export function Editor() {
           <VersionHistory
             noteId={activeNoteId}
             userId={userId}
+            encryptionKey={encryptionKey}
             onRestore={content => { handleContentChange(content); saveActiveNote(); }}
             onClose={() => setShowHistory(false)}
           />
