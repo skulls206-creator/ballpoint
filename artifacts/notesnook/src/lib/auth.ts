@@ -11,8 +11,8 @@ export interface AuthState {
   token: string | null;
 }
 
-const TOKEN_KEY = "localnotes-token";
-const USER_KEY = "localnotes-user";
+const TOKEN_KEY = "ballpoint-token";
+const USER_KEY = "ballpoint-user";
 
 export function getStoredAuth(): AuthState {
   try {

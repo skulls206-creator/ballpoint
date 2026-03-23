@@ -42,7 +42,7 @@ export default function AuthPage({ onAuth, error, loading }: AuthPageProps) {
             <Zap className="w-8 h-8" strokeWidth={1.5} />
           </div>
           <h1 className="text-2xl font-bold text-foreground">
-            Local<span className="text-primary">Notes</span>
+            Ballpoint<span className="text-primary">.one</span>
           </h1>
           <p className="text-sm text-muted-foreground mt-1">Your private, local-first notes</p>
         </div>

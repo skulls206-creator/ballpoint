@@ -19,7 +19,7 @@ export interface NoteFile {
 }
 
 function vaultKey(userId: number) {
-  return `localnotes-vault-${userId}`;
+  return `ballpoint-vault-${userId}`;
 }
 
 async function verifyPermission(handle: FileSystemHandle, readWrite: boolean): Promise<boolean> {

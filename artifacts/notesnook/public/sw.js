@@ -1,5 +1,5 @@
-// LocalNotes Service Worker — offline-first + notification support
-const CACHE_NAME = 'localnotes-v2';
+// Ballpoint.one Service Worker — offline-first + notification support
+const CACHE_NAME = 'ballpoint-v1';
 const STATIC_ASSETS = [
   '/',
   '/manifest.webmanifest',

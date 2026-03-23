@@ -24,7 +24,7 @@ export const DEFAULT_META: NoteMetadata = {
 };
 
 function metaKey(userId: number) {
-  return `localnotes-meta-${userId}`;
+  return `ballpoint-meta-${userId}`;
 }
 
 export async function loadAllMetadata(userId: number): Promise<MetadataMap> {

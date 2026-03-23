@@ -49,7 +49,7 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
         <div className="w-5 h-5 rounded-md bg-primary/15 flex items-center justify-center shrink-0">
           <Zap size={10} className="text-primary" />
         </div>
-        <span className="font-semibold text-[12px] text-sidebar-foreground tracking-tight">LocalNotes</span>
+        <span className="font-semibold text-[12px] text-sidebar-foreground tracking-tight">Ballpoint.one</span>
         <div className="ml-auto flex items-center gap-0.5">
           <button onClick={toggleTheme} title="Toggle theme"
             className="w-5 h-5 rounded flex items-center justify-center text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors">

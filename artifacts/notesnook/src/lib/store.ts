@@ -69,18 +69,18 @@ interface NotesState {
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function activeNoteKey(userId: number) { return `localnotes-active-${userId}`; }
+function activeNoteKey(userId: number) { return `ballpoint-active-${userId}`; }
 
 function getInitialTheme(): 'light' | 'dark' {
   try {
-    const s = localStorage.getItem('localnotes-theme') as 'light' | 'dark' | null;
+    const s = localStorage.getItem('ballpoint-theme') as 'light' | 'dark' | null;
     if (s) return s;
     return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
   } catch { return 'dark'; }
 }
 
 function getInitialAccent(): AccentColor {
-  return (localStorage.getItem('localnotes-accent') as AccentColor) ?? 'violet';
+  return (localStorage.getItem('ballpoint-accent') as AccentColor) ?? 'violet';
 }
 
 function applyTheme(theme: 'light' | 'dark', accent: AccentColor) {
@@ -330,13 +330,13 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   toggleTheme: () => {
     const newTheme = get().theme === 'light' ? 'dark' : 'light';
-    localStorage.setItem('localnotes-theme', newTheme);
+    localStorage.setItem('ballpoint-theme', newTheme);
     applyTheme(newTheme, get().accentColor);
     set({ theme: newTheme });
   },
 
   setAccentColor: (color) => {
-    localStorage.setItem('localnotes-accent', color);
+    localStorage.setItem('ballpoint-accent', color);
     applyTheme(get().theme, color);
     set({ accentColor: color });
   },
