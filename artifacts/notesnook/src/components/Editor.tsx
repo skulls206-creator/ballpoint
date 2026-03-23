@@ -5,9 +5,180 @@ import { format } from 'date-fns';
 import {
   Save, Eye, EyeOff, Star, Archive, Trash2, RotateCcw,
   Bell, BellOff, Tag, X, Check, FileText,
+  Bold, Italic, Strikethrough, Code, Code2, Link2,
+  Heading1, Heading2, Heading3,
+  List, ListOrdered, ListChecks, Quote, Minus,
+  Image,
 } from 'lucide-react';
 import { useNotesStore } from '../lib/store';
 import { cn } from '../lib/utils';
+
+// ─── Markdown Toolbar ─────────────────────────────────────────────────────────
+type WrapStyle = { prefix: string; suffix?: string; block?: boolean; line?: boolean; placeholder?: string };
+
+function insertMarkdown(
+  textarea: HTMLTextAreaElement,
+  style: WrapStyle,
+  onChange: (val: string) => void
+) {
+  const { selectionStart: ss, selectionEnd: se, value } = textarea;
+  const sel = value.slice(ss, se);
+  const { prefix, suffix = prefix, block = false, line = false, placeholder = 'text' } = style;
+
+  let newText: string;
+  let cursorStart: number;
+  let cursorEnd: number;
+
+  if (line) {
+    // Prepend prefix to each selected line (or current line)
+    const lineStart = value.lastIndexOf('\n', ss - 1) + 1;
+    const lineEnd   = value.indexOf('\n', se);
+    const end       = lineEnd === -1 ? value.length : lineEnd;
+    const lines     = value.slice(lineStart, end).split('\n');
+    const newLines  = lines.map(l => prefix + l);
+    newText = value.slice(0, lineStart) + newLines.join('\n') + value.slice(end);
+    cursorStart = lineStart;
+    cursorEnd   = lineStart + newLines.join('\n').length;
+  } else if (block) {
+    // Code block
+    const insert = `${prefix}\n${sel || placeholder}\n${suffix}`;
+    newText = value.slice(0, ss) + insert + value.slice(se);
+    cursorStart = ss + prefix.length + 1;
+    cursorEnd   = cursorStart + (sel || placeholder).length;
+  } else {
+    // Inline wrap — toggle off if already wrapped
+    const alreadyWrapped = value.slice(ss - prefix.length, ss) === prefix &&
+                           value.slice(se, se + suffix.length) === suffix;
+    if (alreadyWrapped) {
+      newText = value.slice(0, ss - prefix.length) + sel + value.slice(se + suffix.length);
+      cursorStart = ss - prefix.length;
+      cursorEnd   = cursorStart + sel.length;
+    } else {
+      const inner = sel || placeholder;
+      newText = value.slice(0, ss) + prefix + inner + suffix + value.slice(se);
+      cursorStart = ss + prefix.length;
+      cursorEnd   = cursorStart + inner.length;
+    }
+  }
+
+  onChange(newText);
+  // Restore selection after React re-render
+  requestAnimationFrame(() => {
+    textarea.focus();
+    textarea.setSelectionRange(cursorStart, cursorEnd);
+  });
+}
+
+function insertLink(
+  textarea: HTMLTextAreaElement,
+  onChange: (val: string) => void
+) {
+  const { selectionStart: ss, selectionEnd: se, value } = textarea;
+  const sel = value.slice(ss, se) || 'link text';
+  const url = prompt('URL:', 'https://');
+  if (!url) return;
+  const insert = `[${sel}](${url})`;
+  const newText = value.slice(0, ss) + insert + value.slice(se);
+  onChange(newText);
+  requestAnimationFrame(() => {
+    textarea.focus();
+    textarea.setSelectionRange(ss, ss + insert.length);
+  });
+}
+
+function insertImage(
+  textarea: HTMLTextAreaElement,
+  onChange: (val: string) => void
+) {
+  const { selectionStart: ss, selectionEnd: se, value } = textarea;
+  const url = prompt('Image URL:', 'https://');
+  if (!url) return;
+  const alt = value.slice(ss, se) || 'image';
+  const insert = `![${alt}](${url})`;
+  const newText = value.slice(0, ss) + insert + value.slice(se);
+  onChange(newText);
+  requestAnimationFrame(() => { textarea.focus(); });
+}
+
+type ToolbarButton =
+  | { kind: 'btn'; icon: React.ReactNode; title: string; style: WrapStyle; shortcut?: string }
+  | { kind: 'link' }
+  | { kind: 'image' }
+  | { kind: 'sep' };
+
+function MarkdownToolbar({
+  textareaRef,
+  onChange,
+}: {
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  onChange: (val: string) => void;
+}) {
+  const tools: ToolbarButton[] = [
+    { kind: 'btn', icon: <Bold size={12} />,          title: 'Bold (Ctrl+B)',        style: { prefix: '**' },                           shortcut: 'b' },
+    { kind: 'btn', icon: <Italic size={12} />,        title: 'Italic (Ctrl+I)',      style: { prefix: '_' },                             shortcut: 'i' },
+    { kind: 'btn', icon: <Strikethrough size={12} />, title: 'Strikethrough',        style: { prefix: '~~' } },
+    { kind: 'btn', icon: <Code size={12} />,          title: 'Inline code',          style: { prefix: '`', suffix: '`', placeholder: 'code' } },
+    { kind: 'sep' },
+    { kind: 'btn', icon: <Heading1 size={12} />,      title: 'Heading 1',            style: { prefix: '# ', line: true } },
+    { kind: 'btn', icon: <Heading2 size={12} />,      title: 'Heading 2',            style: { prefix: '## ', line: true } },
+    { kind: 'btn', icon: <Heading3 size={12} />,      title: 'Heading 3',            style: { prefix: '### ', line: true } },
+    { kind: 'sep' },
+    { kind: 'btn', icon: <List size={12} />,          title: 'Bullet list',          style: { prefix: '- ', line: true } },
+    { kind: 'btn', icon: <ListOrdered size={12} />,   title: 'Numbered list',        style: { prefix: '1. ', line: true } },
+    { kind: 'btn', icon: <ListChecks size={12} />,    title: 'Task list',            style: { prefix: '- [ ] ', line: true } },
+    { kind: 'sep' },
+    { kind: 'btn', icon: <Quote size={12} />,         title: 'Blockquote',           style: { prefix: '> ', line: true } },
+    { kind: 'btn', icon: <Code2 size={12} />,         title: 'Code block',           style: { prefix: '```', suffix: '```', block: true, placeholder: 'code' } },
+    { kind: 'btn', icon: <Minus size={12} />,         title: 'Horizontal rule',      style: { prefix: '\n---\n', suffix: '', placeholder: '' } },
+    { kind: 'sep' },
+    { kind: 'link' },
+    { kind: 'image' },
+  ];
+
+  const handleKey = useCallback((e: KeyboardEvent) => {
+    if (!(e.ctrlKey || e.metaKey)) return;
+    const ta = textareaRef.current;
+    if (!ta || document.activeElement !== ta) return;
+    if (e.key === 'b') { e.preventDefault(); insertMarkdown(ta, { prefix: '**' }, onChange); }
+    if (e.key === 'i') { e.preventDefault(); insertMarkdown(ta, { prefix: '_' }, onChange); }
+    if (e.key === 'k') { e.preventDefault(); insertLink(ta, onChange); }
+  }, [textareaRef, onChange]);
+
+  useEffect(() => {
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [handleKey]);
+
+  const run = (tool: ToolbarButton) => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    if (tool.kind === 'btn') insertMarkdown(ta, tool.style, onChange);
+    if (tool.kind === 'link') insertLink(ta, onChange);
+    if (tool.kind === 'image') insertImage(ta, onChange);
+  };
+
+  return (
+    <div className="shrink-0 flex items-center gap-0.5 px-3 py-1 border-b border-border bg-card/30 overflow-x-auto scrollbar-none">
+      {tools.map((tool, i) => {
+        if (tool.kind === 'sep') {
+          return <div key={i} className="w-px h-4 bg-border mx-1 shrink-0" />;
+        }
+        return (
+          <button
+            key={i}
+            onMouseDown={e => { e.preventDefault(); run(tool); }}
+            title={tool.kind === 'link' ? 'Insert link (Ctrl+K)' : tool.kind === 'image' ? 'Insert image' : tool.title}
+            className="w-6 h-6 flex items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-muted transition-colors shrink-0"
+          >
+            {tool.kind === 'link'  ? <Link2 size={12} />  :
+             tool.kind === 'image' ? <Image size={12} />   :
+             tool.icon}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
 
 // ─── Tag Input ──────────────────────────────────────────────────────────────
 function TagInput({ tags, onChange }: { tags: string[]; onChange: (tags: string[]) => void }) {
