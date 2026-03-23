@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Zap, Mail, Lock, LogIn, UserPlus, Eye, EyeOff, ArrowRight } from "lucide-react";
+import { Zap, Mail, Lock, LogIn, UserPlus, Eye, EyeOff, ArrowRight, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -119,6 +119,34 @@ export default function AuthPage({ onAuth, error, loading }: AuthPageProps) {
                 </button>
               </div>
             </div>
+
+            {/* No password recovery notice */}
+            <AnimatePresence>
+              {mode === "register" && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="flex items-start gap-2 px-3 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-600 dark:text-amber-400"
+                >
+                  <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                  <p className="text-xs leading-snug">
+                    <span className="font-semibold">There is no password recovery.</span>{" "}
+                    If you forget your password your account cannot be accessed. Store it somewhere safe.
+                  </p>
+                </motion.div>
+              )}
+              {mode === "login" && (
+                <motion.p
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  className="text-xs text-muted-foreground/60 text-center"
+                >
+                  Passwords cannot be recovered.
+                </motion.p>
+              )}
+            </AnimatePresence>
 
             {/* Error */}
             <AnimatePresence>
