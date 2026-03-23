@@ -83,12 +83,33 @@ function getInitialAccent(): AccentColor {
   return (localStorage.getItem('ballpoint-accent') as AccentColor) ?? 'violet';
 }
 
+// PWA toolbar / status-bar theme-color per accent × theme
+const THEME_COLORS: Record<AccentColor, { dark: string; light: string }> = {
+  violet: { dark: '#1a1525', light: '#7c5cfc' },
+  blue:   { dark: '#121729', light: '#3b82f6' },
+  teal:   { dark: '#0c1e1c', light: '#0d9488' },
+  green:  { dark: '#0c1e10', light: '#16a34a' },
+  rose:   { dark: '#1e0f14', light: '#e11d48' },
+  orange: { dark: '#1e1208', light: '#ea580c' },
+};
+
 function applyTheme(theme: 'light' | 'dark', accent: AccentColor) {
   const root = document.documentElement;
   root.classList.toggle('dark', theme === 'dark');
   const accents: AccentColor[] = ['violet', 'blue', 'teal', 'green', 'rose', 'orange'];
   accents.forEach(a => root.classList.remove(`accent-${a}`));
   root.classList.add(`accent-${accent}`);
+
+  // Dynamically update <meta name="theme-color"> so the installed PWA
+  // toolbar and Android status bar match the current accent + light/dark mode.
+  const color = THEME_COLORS[accent]?.[theme] ?? '#141418';
+  let meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+  if (!meta) {
+    meta = document.createElement('meta');
+    meta.name = 'theme-color';
+    document.head.appendChild(meta);
+  }
+  meta.content = color;
 }
 
 /** Merge flat file list with metadata map into enriched NoteFile[] */

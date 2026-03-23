@@ -1,29 +1,152 @@
-import { useState, useRef, useEffect, useMemo } from 'react';
+import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import {
-  Star, MoreHorizontal, Trash2, Edit2, Archive, RotateCcw,
-  Trash, FileText, Bell,
+  Star, Trash2, Edit2, Archive, RotateCcw,
+  Trash, FileText, Bell, Copy, ExternalLink,
 } from 'lucide-react';
 import { useNotesStore, selectFilteredNotes } from '../lib/store';
 import { cn } from '../lib/utils';
 
+// ─── Context Menu ─────────────────────────────────────────────────────────────
+interface ContextMenuState { noteId: string; x: number; y: number }
+
+function ContextMenu({
+  state,
+  onClose,
+  inTrash,
+  inArchive,
+  isFavorite,
+  onSelect,
+  onRename,
+  onFavorite,
+  onArchive,
+  onTrash,
+  onRestore,
+  onDeleteForever,
+  onDuplicate,
+  onOpenSideBySide,
+}: {
+  state: ContextMenuState;
+  onClose: () => void;
+  inTrash: boolean;
+  inArchive: boolean;
+  isFavorite: boolean;
+  onSelect: () => void;
+  onRename: () => void;
+  onFavorite: () => void;
+  onArchive: () => void;
+  onTrash: () => void;
+  onRestore: () => void;
+  onDeleteForever: () => void;
+  onDuplicate: () => void;
+  onOpenSideBySide: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Position so menu stays inside viewport
+  const [pos, setPos] = useState({ x: state.x, y: state.y });
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const { innerWidth: W, innerHeight: H } = window;
+    const rect = el.getBoundingClientRect();
+    setPos({
+      x: state.x + rect.width  > W ? state.x - rect.width  : state.x,
+      y: state.y + rect.height > H ? state.y - rect.height : state.y,
+    });
+  }, [state.x, state.y]);
+
+  useEffect(() => {
+    const hide = (e: MouseEvent | KeyboardEvent) => {
+      if (e instanceof KeyboardEvent && e.key !== 'Escape') return;
+      if (e instanceof MouseEvent && ref.current?.contains(e.target as Node)) return;
+      onClose();
+    };
+    document.addEventListener('mousedown', hide);
+    document.addEventListener('keydown', hide);
+    document.addEventListener('scroll', onClose, true);
+    return () => {
+      document.removeEventListener('mousedown', hide);
+      document.removeEventListener('keydown', hide);
+      document.removeEventListener('scroll', onClose, true);
+    };
+  }, [onClose]);
+
+  type MenuItem =
+    | { kind: 'action'; icon: React.ReactNode; label: string; danger?: boolean; action: () => void }
+    | { kind: 'divider' };
+
+  const items: MenuItem[] = [];
+
+  if (!inTrash) {
+    items.push({ kind: 'action', icon: <ExternalLink size={12} />, label: 'Open note', action: onSelect });
+    items.push({ kind: 'divider' });
+    items.push({ kind: 'action', icon: <Star size={12} className={isFavorite ? 'fill-primary text-primary' : ''} />, label: isFavorite ? 'Unpin from Favorites' : 'Pin to Favorites', action: onFavorite });
+    items.push({ kind: 'action', icon: <Edit2 size={12} />, label: 'Rename', action: onRename });
+    items.push({ kind: 'action', icon: <Copy size={12} />, label: 'Duplicate', action: onDuplicate });
+    if (!inArchive) {
+      items.push({ kind: 'divider' });
+      items.push({ kind: 'action', icon: <Archive size={12} />, label: 'Move to Archive', action: onArchive });
+      items.push({ kind: 'action', icon: <Trash2 size={12} />, label: 'Move to Trash', danger: true, action: onTrash });
+    } else {
+      items.push({ kind: 'divider' });
+      items.push({ kind: 'action', icon: <RotateCcw size={12} />, label: 'Restore note', action: onRestore });
+      items.push({ kind: 'action', icon: <Trash2 size={12} />, label: 'Move to Trash', danger: true, action: onTrash });
+    }
+  } else {
+    items.push({ kind: 'action', icon: <RotateCcw size={12} />, label: 'Restore note', action: onRestore });
+    items.push({ kind: 'divider' });
+    items.push({ kind: 'action', icon: <Trash size={12} />, label: 'Delete forever', danger: true, action: onDeleteForever });
+  }
+
+  return (
+    <div
+      ref={ref}
+      style={{ top: pos.y, left: pos.x }}
+      className="fixed z-[200] w-52 bg-popover border border-popover-border rounded-xl shadow-xl py-1 overflow-hidden animate-in fade-in zoom-in-95 duration-100"
+    >
+      {items.map((item, i) =>
+        item.kind === 'divider' ? (
+          <div key={i} className="my-0.5 mx-2 border-t border-border/60" />
+        ) : (
+          <button
+            key={i}
+            onClick={() => { item.action(); onClose(); }}
+            className={cn(
+              "w-full flex items-center gap-2.5 px-3 py-1.5 text-[12px] transition-colors text-left",
+              item.danger
+                ? "text-destructive hover:bg-destructive/10"
+                : "text-foreground/80 hover:bg-accent hover:text-foreground"
+            )}
+          >
+            <span className={item.danger ? "text-destructive" : "text-muted-foreground"}>
+              {item.icon}
+            </span>
+            {item.label}
+          </button>
+        )
+      )}
+    </div>
+  );
+}
+
+// ─── Note List ────────────────────────────────────────────────────────────────
 export function NoteList() {
   const activeNoteId  = useNotesStore(s => s.activeNoteId);
   const searchQuery   = useNotesStore(s => s.searchQuery);
   const activeSection = useNotesStore(s => s.activeSection);
   const notes         = useNotesStore(s => s.notes);
 
-  // Actions (stable Zustand references)
-  const selectNote           = useNotesStore(s => s.selectNote);
-  const setSearchQuery       = useNotesStore(s => s.setSearchQuery);
-  const trashNote            = useNotesStore(s => s.trashNote);
-  const restoreNote          = useNotesStore(s => s.restoreNote);
+  const selectNote            = useNotesStore(s => s.selectNote);
+  const setSearchQuery        = useNotesStore(s => s.setSearchQuery);
+  const trashNote             = useNotesStore(s => s.trashNote);
+  const restoreNote           = useNotesStore(s => s.restoreNote);
   const permanentlyDeleteNote = useNotesStore(s => s.permanentlyDeleteNote);
-  const toggleFavorite       = useNotesStore(s => s.toggleFavorite);
-  const setNoteStatus        = useNotesStore(s => s.setNoteStatus);
-  const renameNote           = useNotesStore(s => s.renameNote);
+  const toggleFavorite        = useNotesStore(s => s.toggleFavorite);
+  const setNoteStatus         = useNotesStore(s => s.setNoteStatus);
+  const renameNote            = useNotesStore(s => s.renameNote);
+  const createNewNote         = useNotesStore(s => s.createNewNote);
 
-  // Derive filtered list locally — useMemo so it only recomputes when inputs change
   const filteredNotes = useMemo(
     () => selectFilteredNotes({ notes, activeSection, searchQuery } as any),
     [notes, activeSection, searchQuery]
@@ -31,29 +154,30 @@ export function NoteList() {
 
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
-  const [menuId, setMenuId] = useState<string | null>(null);
+  const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
   const renameRef = useRef<HTMLInputElement>(null);
-  const menuRef   = useRef<HTMLDivElement>(null);
 
   useEffect(() => { if (renamingId) renameRef.current?.focus(); }, [renamingId]);
 
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setMenuId(null);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+  const handleContextMenu = useCallback((e: React.MouseEvent, noteId: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({ noteId, x: e.clientX, y: e.clientY });
   }, []);
+
+  const closeCtx = useCallback(() => setCtxMenu(null), []);
 
   const inTrash   = activeSection.type === 'trash';
   const inArchive = activeSection.type === 'archive';
 
   const sectionTitle =
-    activeSection.type === 'all'       ? 'Notes'
+    activeSection.type === 'all'         ? 'Notes'
     : activeSection.type === 'favorites' ? 'Favorites'
     : activeSection.type === 'archive'   ? 'Archive'
     : activeSection.type === 'trash'     ? 'Trash'
     : `#${(activeSection as any).tag}`;
+
+  const ctxNote = ctxMenu ? notes.find(n => n.id === ctxMenu.noteId) : null;
 
   return (
     <div className="w-[240px] shrink-0 flex flex-col h-full border-r border-border bg-card/40 overflow-hidden">
@@ -88,22 +212,25 @@ export function NoteList() {
             <p className="text-[11px]">
               {searchQuery ? 'No matching notes' : inTrash ? 'Trash is empty' : inArchive ? 'No archived notes' : 'No notes yet'}
             </p>
+            {!searchQuery && !inTrash && !inArchive && (
+              <p className="text-[10px] mt-1 opacity-60">Right-click to see options</p>
+            )}
           </div>
         ) : (
           filteredNotes.map(note => {
             const isActive   = activeNoteId === note.id;
-            const isMenuOpen = menuId === note.id;
             const isRenaming = renamingId === note.id;
 
             return (
               <div
                 key={note.id}
                 onClick={() => { if (!inTrash && !isRenaming) selectNote(note.id); }}
+                onContextMenu={e => handleContextMenu(e, note.id)}
                 className={cn(
-                  "group relative px-3 py-2 transition-colors border-b border-border/30",
+                  "group relative px-3 py-2 transition-colors border-b border-border/30 select-none",
                   isActive
                     ? "bg-accent/60 border-l-2 border-l-primary"
-                    : !inTrash ? "hover:bg-muted/50 cursor-pointer" : ""
+                    : !inTrash ? "hover:bg-muted/50 cursor-pointer" : "cursor-default"
                 )}
               >
                 {/* Title row */}
@@ -130,74 +257,6 @@ export function NoteList() {
                       {note.title}
                     </span>
                   )}
-
-                  {/* Context menu trigger */}
-                  <div className="relative">
-                    <button
-                      onClick={e => { e.stopPropagation(); setMenuId(isMenuOpen ? null : note.id); }}
-                      className={cn(
-                        "p-0.5 rounded transition-opacity text-muted-foreground hover:text-foreground",
-                        isMenuOpen ? "opacity-100" : "opacity-0 group-hover:opacity-100"
-                      )}
-                    >
-                      <MoreHorizontal size={12} />
-                    </button>
-
-                    {isMenuOpen && (
-                      <div
-                        ref={menuRef}
-                        className="absolute right-0 top-5 z-50 w-36 bg-popover border border-popover-border rounded-lg shadow-lg py-0.5 text-[11px]"
-                        onClick={e => e.stopPropagation()}
-                      >
-                        {!inTrash && !inArchive && (
-                          <>
-                            <button onClick={() => { toggleFavorite(note.id); setMenuId(null); }}
-                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-muted transition-colors">
-                              <Star size={11} className={note.isFavorite ? "fill-primary text-primary" : ""} />
-                              {note.isFavorite ? 'Unfavorite' : 'Favorite'}
-                            </button>
-                            <button onClick={() => { setRenamingId(note.id); setRenameValue(note.title); setMenuId(null); }}
-                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-muted transition-colors">
-                              <Edit2 size={11} /> Rename
-                            </button>
-                            <button onClick={() => { setNoteStatus(note.id, 'archived'); setMenuId(null); }}
-                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-muted transition-colors">
-                              <Archive size={11} /> Archive
-                            </button>
-                            <div className="my-0.5 border-t border-border" />
-                            <button onClick={() => { trashNote(note.id); setMenuId(null); }}
-                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-destructive/10 text-destructive transition-colors">
-                              <Trash2 size={11} /> Move to Trash
-                            </button>
-                          </>
-                        )}
-                        {inArchive && (
-                          <>
-                            <button onClick={() => { restoreNote(note.id); setMenuId(null); }}
-                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-muted transition-colors">
-                              <RotateCcw size={11} /> Restore
-                            </button>
-                            <button onClick={() => { trashNote(note.id); setMenuId(null); }}
-                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-destructive/10 text-destructive transition-colors">
-                              <Trash2 size={11} /> Move to Trash
-                            </button>
-                          </>
-                        )}
-                        {inTrash && (
-                          <>
-                            <button onClick={() => { restoreNote(note.id); setMenuId(null); }}
-                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-muted transition-colors">
-                              <RotateCcw size={11} /> Restore
-                            </button>
-                            <button onClick={() => { permanentlyDeleteNote(note.id); setMenuId(null); }}
-                              className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-destructive/10 text-destructive transition-colors">
-                              <Trash size={11} /> Delete Forever
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    )}
-                  </div>
                 </div>
 
                 {/* Tags */}
@@ -238,6 +297,30 @@ export function NoteList() {
             Empty Trash ({filteredNotes.length})
           </button>
         </div>
+      )}
+
+      {/* Right-click context menu */}
+      {ctxMenu && ctxNote && (
+        <ContextMenu
+          state={ctxMenu}
+          onClose={closeCtx}
+          inTrash={inTrash}
+          inArchive={inArchive}
+          isFavorite={ctxNote.isFavorite}
+          onSelect={() => selectNote(ctxNote.id)}
+          onRename={() => { setRenamingId(ctxNote.id); setRenameValue(ctxNote.title); }}
+          onFavorite={() => toggleFavorite(ctxNote.id)}
+          onArchive={() => setNoteStatus(ctxNote.id, 'archived')}
+          onTrash={() => trashNote(ctxNote.id)}
+          onRestore={() => restoreNote(ctxNote.id)}
+          onDeleteForever={() => {
+            if (confirm(`Permanently delete "${ctxNote.title}"? This cannot be undone.`)) {
+              permanentlyDeleteNote(ctxNote.id);
+            }
+          }}
+          onDuplicate={() => createNewNote(`${ctxNote.title} (copy)`)}
+          onOpenSideBySide={() => selectNote(ctxNote.id)}
+        />
       )}
     </div>
   );

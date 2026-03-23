@@ -1,16 +1,22 @@
-# Workspace — LocalNotes
+# Workspace — Ballpoint.one
 
 ## App Overview
 
-**LocalNotes** is a beautiful, local-first PWA note-taking app (Notesnook/Notion-inspired).
+**Ballpoint.one** is a beautiful, local-first PWA note-taking app (Notesnook/Notion-inspired).
 
 ### Key Features
 - Email/password accounts (JWT auth, no email confirmation)
 - Each account has its own isolated vault (folder) stored separately in IndexedDB
 - Notes are plain `.md` / `.txt` files read/written directly to the user's local filesystem via File System Access API
 - Markdown editor with live split preview (marked + DOMPurify)
-- Right-click context menus, command palette (Ctrl+K), keyboard shortcuts
-- Dark/light mode, PWA installable, offline-capable service worker
+- **Right-click context menus** on notes: Open, Rename, Favorite, Duplicate, Archive, Trash, Restore, Delete Forever
+- Command palette (Ctrl+K), keyboard shortcuts (Ctrl+N new note, Ctrl+S save)
+- 6 accent color themes (Violet, Blue, Teal, Green, Rose, Orange) × dark/light mode
+- **Dynamic PWA toolbar color**: `<meta name="theme-color">` updates per accent × dark/light via `applyTheme()` in store.ts
+- **PWA install prompt**: `usePWAInstall` hook captures `beforeinstallprompt`; Install button shown in Sidebar
+- Manifest includes `display_override: window-controls-overlay`, `shortcuts` (New Note), `launch_handler`
+- Offline-capable service worker (stale-while-revalidate), SW update detection via `sw-update-available` event
+- Favorites/pinning, Trash/Archive, Tags, Reminders (60s scheduler + SW notifications)
 
 ### Auth
 - `POST /api/auth/register` — email + password (min 6 chars), returns JWT

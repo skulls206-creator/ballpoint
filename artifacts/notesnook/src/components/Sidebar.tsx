@@ -2,10 +2,12 @@ import { useState, useMemo } from 'react';
 import {
   FileText, Star, Archive, Trash2, Tag, ChevronDown, ChevronRight,
   Plus, FolderOpen, FolderX, Sun, Moon, Settings, Zap, LogOut, Search,
+  Download, CheckCircle2,
 } from 'lucide-react';
 import { useNotesStore, SidebarSection } from '../lib/store';
 import { useAuth } from '../lib/authContext';
 import { AccentColor, getAllTags } from '../lib/metadata';
+import { usePWAInstall } from '../lib/usePWAInstall';
 import { cn } from '../lib/utils';
 
 const ACCENT_COLORS: { id: AccentColor; label: string; hsl: string }[] = [
@@ -19,8 +21,8 @@ const ACCENT_COLORS: { id: AccentColor; label: string; hsl: string }[] = [
 
 export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => void }) {
   const { user, logout } = useAuth();
+  const { canInstall, isInstalled, install } = usePWAInstall();
 
-  // Primitive / stable selectors — never return new references
   const activeSection  = useNotesStore(s => s.activeSection);
   const vaultHandle    = useNotesStore(s => s.vaultHandle);
   const userId         = useNotesStore(s => s.userId);
@@ -29,7 +31,6 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
   const notes          = useNotesStore(s => s.notes);
   const metadata       = useNotesStore(s => s.metadata);
 
-  // Actions (stable Zustand references)
   const setActiveSection = useNotesStore(s => s.setActiveSection);
   const createNewNote    = useNotesStore(s => s.createNewNote);
   const openNewVault     = useNotesStore(s => s.openNewVault);
@@ -37,7 +38,6 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
   const toggleTheme      = useNotesStore(s => s.toggleTheme);
   const setAccentColor   = useNotesStore(s => s.setAccentColor);
 
-  // Compute derived data locally with useMemo — NOT via Zustand selector
   const tags = useMemo(() => getAllTags(metadata, notes), [metadata, notes]);
   const counts = useMemo(() => ({
     all:       notes.filter(n => n.status === 'active').length,
@@ -86,21 +86,25 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
 
       {/* Settings Panel */}
       {settingsOpen && (
-        <div className="px-3 py-2 border-b border-sidebar-border bg-sidebar space-y-2.5">
+        <div className="px-3 py-2.5 border-b border-sidebar-border bg-sidebar space-y-3">
+          {/* Accent colors */}
           <div>
-            <p className="text-[9px] uppercase tracking-widest text-sidebar-foreground/35 mb-1.5 font-semibold">Accent Color</p>
-            <div className="flex gap-1.5 flex-wrap">
+            <p className="text-[9px] uppercase tracking-widest text-sidebar-foreground/35 mb-1.5 font-semibold">Theme Color</p>
+            <div className="grid grid-cols-6 gap-1">
               {ACCENT_COLORS.map(c => (
                 <button key={c.id} onClick={() => setAccentColor(c.id)} title={c.label}
-                  style={{
-                    backgroundColor: `hsl(${c.hsl})`,
-                    outline: accentColor === c.id ? `2px solid hsl(${c.hsl})` : undefined,
-                    outlineOffset: '2px',
-                  }}
-                  className="w-4 h-4 rounded-full transition-all" />
+                  style={{ backgroundColor: `hsl(${c.hsl})` }}
+                  className={cn(
+                    "w-6 h-6 rounded-full transition-all flex items-center justify-center",
+                    accentColor === c.id && "ring-2 ring-offset-2 ring-offset-sidebar ring-foreground/60"
+                  )}>
+                  {accentColor === c.id && <CheckCircle2 size={12} className="text-white drop-shadow" />}
+                </button>
               ))}
             </div>
           </div>
+
+          {/* Vault */}
           <div>
             <p className="text-[9px] uppercase tracking-widest text-sidebar-foreground/35 mb-1 font-semibold">Vault</p>
             {vaultHandle ? (
@@ -121,6 +125,24 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
               </button>
             )}
           </div>
+
+          {/* Install PWA */}
+          {!isInstalled && canInstall && (
+            <div>
+              <p className="text-[9px] uppercase tracking-widest text-sidebar-foreground/35 mb-1 font-semibold">App</p>
+              <button onClick={install}
+                className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-primary/10 text-primary hover:bg-primary/20 transition-colors text-[11px] font-medium">
+                <Download size={11} /> Install App
+              </button>
+            </div>
+          )}
+          {isInstalled && (
+            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/60">
+              <CheckCircle2 size={10} className="text-green-500" /> Installed as desktop app
+            </div>
+          )}
+
+          {/* Account */}
           {user && (
             <div>
               <p className="text-[9px] uppercase tracking-widest text-sidebar-foreground/35 mb-1 font-semibold">Account</p>
@@ -204,6 +226,16 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
           </div>
         )}
       </nav>
+
+      {/* Install app pill — shown at bottom when not in settings */}
+      {!settingsOpen && !isInstalled && canInstall && (
+        <div className="px-2 pb-2 pt-1 border-t border-sidebar-border">
+          <button onClick={install}
+            className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md bg-primary/10 text-primary hover:bg-primary/20 transition-colors text-[11px] font-medium">
+            <Download size={11} /> Install Ballpoint.one
+          </button>
+        </div>
+      )}
     </aside>
   );
 }
