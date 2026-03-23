@@ -8,3 +8,23 @@
 export interface HealthStatus {
   status: string;
 }
+
+export interface AuthCredentials {
+  email: string;
+  /** @minLength 6 */
+  password: string;
+}
+
+export interface UserInfo {
+  id: number;
+  email: string;
+}
+
+export interface AuthResponse {
+  token: string;
+  user: UserInfo;
+}
+
+export interface ErrorResponse {
+  error: string;
+}

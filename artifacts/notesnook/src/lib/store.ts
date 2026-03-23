@@ -1,18 +1,19 @@
 import { create } from 'zustand';
-import { 
-  openVault, 
-  loadVault, 
-  scanFolder, 
-  readNote, 
-  saveNote, 
-  createNote, 
-  deleteNote, 
+import {
+  openVault,
+  loadVault,
+  scanFolder,
+  readNote,
+  saveNote,
+  createNote,
+  deleteNote,
   renameNote,
   clearVault,
-  NoteFile 
+  NoteFile
 } from './fileSystem';
 
 interface NotesState {
+  userId: number | null;
   vaultHandle: FileSystemDirectoryHandle | null;
   notes: NoteFile[];
   activeNoteId: string | null;
@@ -21,11 +22,12 @@ interface NotesState {
   isLoading: boolean;
   searchQuery: string;
   theme: 'light' | 'dark';
-  
+
   // Actions
-  init: () => Promise<void>;
-  openNewVault: () => Promise<void>;
-  disconnectVault: () => Promise<void>;
+  init: (userId: number) => Promise<void>;
+  reset: () => void;
+  openNewVault: (userId: number) => Promise<void>;
+  disconnectVault: (userId: number) => Promise<void>;
   refreshNotes: () => Promise<void>;
   selectNote: (id: string) => Promise<void>;
   updateContent: (content: string) => void;
@@ -37,7 +39,22 @@ interface NotesState {
   toggleTheme: () => void;
 }
 
+const getInitialTheme = (): 'light' | 'dark' => {
+  try {
+    const stored = localStorage.getItem('notesnook-theme') as 'light' | 'dark' | null;
+    if (stored) return stored;
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  } catch {
+    return 'light';
+  }
+};
+
+function activeNoteKey(userId: number) {
+  return `notesnook-active-note-${userId}`;
+}
+
 export const useNotesStore = create<NotesState>((set, get) => ({
+  userId: null,
   vaultHandle: null,
   notes: [],
   activeNoteId: null,
@@ -45,22 +62,18 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   isDirty: false,
   isLoading: true,
   searchQuery: '',
-  theme: (localStorage.getItem('notesnook-theme') as 'light' | 'dark') || 
-         (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'),
+  theme: getInitialTheme(),
 
-  init: async () => {
-    set({ isLoading: true });
-    
-    // Apply theme
+  init: async (userId: number) => {
+    set({ isLoading: true, userId });
     const theme = get().theme;
     document.documentElement.classList.toggle('dark', theme === 'dark');
 
-    const handle = await loadVault();
+    const handle = await loadVault(userId);
     if (handle) {
       const notes = await scanFolder(handle);
       set({ vaultHandle: handle, notes, isLoading: false });
-      
-      const lastActiveId = localStorage.getItem('notesnook-active-note');
+      const lastActiveId = localStorage.getItem(activeNoteKey(userId));
       if (lastActiveId && notes.find(n => n.id === lastActiveId)) {
         get().selectNote(lastActiveId);
       } else if (notes.length > 0) {
@@ -71,21 +84,32 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     }
   },
 
-  openNewVault: async () => {
-    const handle = await openVault();
+  reset: () => {
+    set({
+      userId: null,
+      vaultHandle: null,
+      notes: [],
+      activeNoteId: null,
+      activeContent: '',
+      isDirty: false,
+      isLoading: false,
+      searchQuery: '',
+    });
+  },
+
+  openNewVault: async (userId: number) => {
+    const handle = await openVault(userId);
     if (handle) {
       set({ isLoading: true });
       const notes = await scanFolder(handle);
       set({ vaultHandle: handle, notes, activeNoteId: null, activeContent: '', isDirty: false, isLoading: false });
-      if (notes.length > 0) {
-        get().selectNote(notes[0].id);
-      }
+      if (notes.length > 0) get().selectNote(notes[0].id);
     }
   },
 
-  disconnectVault: async () => {
-    await clearVault();
-    localStorage.removeItem('notesnook-active-note');
+  disconnectVault: async (userId: number) => {
+    await clearVault(userId);
+    localStorage.removeItem(activeNoteKey(userId));
     set({ vaultHandle: null, notes: [], activeNoteId: null, activeContent: '', isDirty: false });
   },
 
@@ -99,26 +123,20 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   selectNote: async (id: string) => {
     const state = get();
-    if (state.isDirty && state.activeNoteId) {
-      await state.saveActiveNote(); // Auto-save previous before switching
-    }
-
+    if (state.isDirty && state.activeNoteId) await state.saveActiveNote();
     const note = state.notes.find(n => n.id === id);
-    if (note) {
+    if (note && state.userId !== null) {
       const content = await readNote(note.handle);
-      localStorage.setItem('notesnook-active-note', id);
+      localStorage.setItem(activeNoteKey(state.userId), id);
       set({ activeNoteId: id, activeContent: content, isDirty: false });
     }
   },
 
-  updateContent: (content: string) => {
-    set({ activeContent: content, isDirty: true });
-  },
+  updateContent: (content: string) => set({ activeContent: content, isDirty: true }),
 
   saveActiveNote: async () => {
     const state = get();
     if (!state.activeNoteId || !state.vaultHandle) return;
-
     const note = state.notes.find(n => n.id === state.activeNoteId);
     if (note) {
       await saveNote(note.handle, state.activeContent);
@@ -130,18 +148,12 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   createNewNote: async (title = 'Untitled Note') => {
     const state = get();
     if (!state.vaultHandle) return;
+    if (state.isDirty && state.activeNoteId) await state.saveActiveNote();
 
-    if (state.isDirty && state.activeNoteId) {
-      await state.saveActiveNote();
-    }
-
-    const baseTitle = title;
-    let finalTitle = baseTitle;
+    let finalTitle = title;
     let counter = 1;
-    
-    // Simple deduplication
     while (state.notes.some(n => n.title === finalTitle)) {
-      finalTitle = `${baseTitle} ${counter}`;
+      finalTitle = `${title} ${counter}`;
       counter++;
     }
 
@@ -153,16 +165,14 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   removeNote: async (id: string) => {
     const state = get();
     if (!state.vaultHandle) return;
-
     await deleteNote(state.vaultHandle, id);
     await state.refreshNotes();
-
     const updatedNotes = get().notes;
     if (state.activeNoteId === id) {
       if (updatedNotes.length > 0) {
         get().selectNote(updatedNotes[0].id);
       } else {
-        localStorage.removeItem('notesnook-active-note');
+        if (state.userId) localStorage.removeItem(activeNoteKey(state.userId));
         set({ activeNoteId: null, activeContent: '', isDirty: false });
       }
     }
@@ -170,29 +180,23 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   changeNoteTitle: async (id: string, newTitle: string) => {
     const state = get();
-    if (!state.vaultHandle) return;
-    if (!newTitle.trim()) return;
-
+    if (!state.vaultHandle || !newTitle.trim()) return;
     const note = state.notes.find(n => n.id === id);
     if (!note || note.title === newTitle) return;
-
     const newHandle = await renameNote(state.vaultHandle, note.handle, newTitle);
     await state.refreshNotes();
-    
-    if (state.activeNoteId === id) {
-      localStorage.setItem('notesnook-active-note', newHandle.name);
+    if (state.activeNoteId === id && state.userId) {
+      localStorage.setItem(activeNoteKey(state.userId), newHandle.name);
       set({ activeNoteId: newHandle.name });
     }
   },
 
-  setSearchQuery: (query: string) => {
-    set({ searchQuery: query });
-  },
+  setSearchQuery: (query: string) => set({ searchQuery: query }),
 
   toggleTheme: () => {
     const newTheme = get().theme === 'light' ? 'dark' : 'light';
     localStorage.setItem('notesnook-theme', newTheme);
     document.documentElement.classList.toggle('dark', newTheme === 'dark');
     set({ theme: newTheme });
-  }
+  },
 }));

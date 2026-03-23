@@ -1,0 +1,162 @@
+Prompt: Upgrade my local PWA notes app with rich features
+
+You already generated a basic local-first PWA note-taking app for me. It can create, edit, and store notes locally, but it is very barebones. I want you to significantly upgrade it with more powerful features while still keeping everything local-only (no external server). The app should remain a PWA, work offline, and keep all data on the device.
+
+Tech constraints and storage
+Keep it a Progressive Web App with service worker, manifest, and offline support.
+
+Store structured data (notes, metadata, reminders, settings) in IndexedDB, not just localStorage.
+
+Notes content can still be plain text/markdown in IndexedDB, or backed by local files if you already implemented that pattern.
+
+Feature set to add
+Favorites / pinned notes
+
+Add a boolean isFavorite (or pinned) field on each note record in IndexedDB.
+
+In the UI, provide a star / pin icon on each note in the list and in the editor header.
+
+Clicking the star/pin toggles the favorite status and persists it.
+
+In the sidebar, add a “Favorites” section or filter so I can quickly see only pinned notes.
+
+Trash and archive system
+
+Add note statuses:
+
+active (normal)
+
+archived
+
+trashed
+
+Do not immediately delete notes when the user clicks delete. Instead:
+
+Move them to trashed state and show them under a “Trash” section.
+
+Allow restoring from Trash back to active.
+
+Provide a “Delete permanently” action from Trash that actually removes the record from IndexedDB.
+
+Add an “Archive” section:
+
+When a note is archived, it disappears from the main list but is visible under “Archive”.
+
+Support un-archiving back to active.
+
+Tags / categories
+
+Add tags: string[] to each note.
+
+In the editor, allow adding/removing tags with a simple UI (chips, comma-separated input, etc.).
+
+In the sidebar, add a “Tags” area listing all tags in use; clicking a tag filters the note list to notes that contain that tag.
+
+Persist tag info in IndexedDB.
+
+Search and filter
+
+Implement a search bar that can filter notes by:
+
+Title
+
+Content (basic substring search is fine)
+
+Tags
+
+Make the search run locally over IndexedDB or an in-memory list of notes.
+
+Basic rich content / markdown enhancements
+
+Keep notes as text/markdown, but:
+
+Support headings, lists, checkboxes, bold/italic, code blocks, links in the UI.
+
+Provide a live-rendered preview (or hybrid editing) so it feels nicer than a plain textarea.
+
+Store raw markdown in IndexedDB; render to HTML in the UI using a small client-side markdown library.
+
+Reminders and notifications (local, best-effort)
+I want to be able to set reminders on notes and get notifications on desktop (Windows) and mobile where the browser/PWA allows it.
+
+Important: I understand PWAs have limitations and cannot do perfect, OS-level scheduled alarms like native apps. I am ok with “best effort” behavior based on what’s realistically possible.
+
+Implement:
+
+Reminder model
+
+Add fields on a note:
+
+hasReminder: boolean
+
+reminderTime: ISO string or timestamp
+
+reminderStatus: "pending" | "fired" | "dismissed"
+
+In the editor, allow turning a reminder on/off and choosing a date/time (using native date/time inputs is fine).
+
+Notification permissions & capabilities
+
+Use the Notifications API to request permission from the user to show notifications.
+
+Use the Service Worker to actually show notifications when possible.
+
+If push notifications require a server and you cannot implement a backend, focus on local notifications triggered while the app or service worker can run. No remote push server is required.
+
+Scheduling behavior (best effort)
+
+Implement a simple, local reminder scheduler:
+
+When the app is open or when the PWA is running in a window, periodically check pending reminders (e.g., every 1 minute).
+
+If current time >= reminderTime and reminderStatus is pending, show a notification using registration.showNotification() in the service worker or new Notification() as appropriate.
+
+Document clearly in the UI (e.g., in settings/about) that:
+
+Reminders are best-effort and might not fire exactly on time on all platforms, especially if the browser is fully closed.
+
+For reliable notifications, users should keep the PWA installed, allow notifications, and allow it to run in the background (Chrome/Edge settings).
+
+Notification UX
+
+The notification content should include:
+
+App name
+
+Note title
+
+Optional snippet of the note
+
+Clicking the notification should open/focus the PWA and directly open that note.
+
+Provide “Mark reminder done” or “Snooze” actions in the UI once the reminder has fired.
+
+Other quality-of-life features
+Favorites section in sidebar, Trash, Archive, and Tags sections should all update in real time when note state changes.
+
+Persist UI state (last opened section, theme, etc.) in localStorage or IndexedDB.
+
+Make sure all of this still works offline: all data and reminders are handled on-device, no cloud.
+
+Implementation guidance
+Keep a clean, modular structure for the data layer (notes/reminders store) and UI components.
+
+Add concise comments explaining:
+
+How note state transitions work (active → archived → trashed → deleted).
+
+How favorites, tags, and reminder scheduling are stored and updated.
+
+How the Notifications API and service worker interact in this app.
+
+After these changes, I should be able to:
+
+Create notes and tag them.
+
+Mark some notes as favorites.
+
+Archive notes and still find them in an Archive section.
+
+Send notes to Trash and either restore or permanently delete them.
+
+Set a reminder time on a note and, if the PWA is allowed to run and has notification permission, receive a notification on desktop/phone around that time.

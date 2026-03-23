@@ -1,4 +1,24 @@
-# Workspace
+# Workspace — LocalNotes
+
+## App Overview
+
+**LocalNotes** is a beautiful, local-first PWA note-taking app (Notesnook/Notion-inspired).
+
+### Key Features
+- Email/password accounts (JWT auth, no email confirmation)
+- Each account has its own isolated vault (folder) stored separately in IndexedDB
+- Notes are plain `.md` / `.txt` files read/written directly to the user's local filesystem via File System Access API
+- Markdown editor with live split preview (marked + DOMPurify)
+- Right-click context menus, command palette (Ctrl+K), keyboard shortcuts
+- Dark/light mode, PWA installable, offline-capable service worker
+
+### Auth
+- `POST /api/auth/register` — email + password (min 6 chars), returns JWT
+- `POST /api/auth/login` — returns JWT
+- `GET /api/auth/me` — returns current user (requires Bearer token)
+- JWT stored in localStorage; per-user vault key in IndexedDB
+
+
 
 ## Overview
 

@@ -2,25 +2,31 @@ import { motion } from "framer-motion";
 import { FolderOpen, HardDrive, Shield, Zap } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useNotesStore } from "@/lib/store";
+import { useAuth } from "@/lib/authContext";
 import { isFileSystemSupported } from "@/lib/fileSystem";
 
 export function WelcomeScreen() {
-  const openNewVault = useNotesStore(state => state.openNewVault);
+  const { openNewVault } = useNotesStore();
+  const { user } = useAuth();
+
+  const handleOpen = () => {
+    if (user) openNewVault(user.id);
+  };
 
   return (
     <div className="min-h-screen w-full flex flex-col relative overflow-hidden bg-background">
-      {/* Background Image & Overlay */}
+      {/* Background */}
       <div className="absolute inset-0 z-0">
-        <img 
+        <img
           src={`${import.meta.env.BASE_URL}images/hero-bg.png`}
-          alt="Hero background" 
+          alt="Hero background"
           className="w-full h-full object-cover opacity-60 dark:opacity-30 mix-blend-overlay"
         />
         <div className="absolute inset-0 bg-gradient-to-b from-background/80 via-background/95 to-background" />
       </div>
 
       <div className="flex-1 flex flex-col items-center justify-center relative z-10 px-4">
-        <motion.div 
+        <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, ease: "easeOut" }}
@@ -34,8 +40,13 @@ export function WelcomeScreen() {
               Local<span className="text-primary">Notes</span>
             </h1>
             <p className="text-xl md:text-2xl text-muted-foreground max-w-xl mx-auto font-light leading-relaxed">
-              Your thoughts, your files. A beautiful markdown editor that works directly with your local folder.
+              Choose a folder on your computer to start writing.
             </p>
+            {user && (
+              <p className="text-sm text-muted-foreground/70">
+                Signed in as <span className="font-medium text-foreground/80">{user.email}</span>
+              </p>
+            )}
           </div>
 
           {!isFileSystemSupported ? (
@@ -44,17 +55,14 @@ export function WelcomeScreen() {
                 <Shield className="w-5 h-5" /> Browser Not Supported
               </h3>
               <p className="text-sm opacity-90">
-                Your browser doesn't support the File System Access API required for this app to work offline directly with your files. Please use Chrome, Edge, or a recent Chromium-based browser.
+                Your browser doesn't support the File System Access API. Please use Chrome, Edge, or a Chromium-based browser.
               </p>
             </div>
           ) : (
-            <motion.div 
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-            >
-              <Button 
-                onClick={openNewVault}
-                size="lg" 
+            <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
+              <Button
+                onClick={handleOpen}
+                size="lg"
                 className="h-16 px-10 rounded-2xl text-lg font-medium shadow-xl shadow-primary/25 hover:shadow-primary/40 transition-all"
               >
                 <FolderOpen className="mr-3 w-6 h-6" />
@@ -64,17 +72,17 @@ export function WelcomeScreen() {
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-12 max-w-3xl mx-auto">
-            <Feature 
+            <Feature
               icon={<HardDrive />}
               title="100% Local"
               description="Notes are saved as plain .md files on your hard drive."
             />
-            <Feature 
+            <Feature
               icon={<Shield />}
               title="Private by Design"
-              description="No servers, no accounts, no telemetry. Pure privacy."
+              description="No servers, no accounts for your notes. Pure privacy."
             />
-            <Feature 
+            <Feature
               icon={<Zap />}
               title="Blazing Fast"
               description="Offline-first architecture means instant loading times."

@@ -6,4 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from "./authCredentials";
+export * from "./authResponse";
+export * from "./errorResponse";
 export * from "./healthStatus";
+export * from "./userInfo";
