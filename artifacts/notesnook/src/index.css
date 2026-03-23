@@ -322,10 +322,115 @@
   --sidebar-ring: 24 90% 60%;
 }
 
+/* ── Indigo ── */
+.accent-indigo {
+  --ring: 238 75% 62%;
+  --primary: 238 75% 62%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 238 60% 93%;
+  --accent-foreground: 238 55% 25%;
+  --sidebar-primary: 238 75% 62%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 238 55% 91%;
+  --sidebar-accent-foreground: 238 55% 25%;
+  --sidebar-ring: 238 75% 62%;
+}
+.dark.accent-indigo, .dark .accent-indigo {
+  --ring: 238 70% 68%;
+  --primary: 238 70% 68%;
+  --primary-foreground: 238 40% 10%;
+  --accent: 238 30% 18%;
+  --accent-foreground: 238 70% 82%;
+  --sidebar-primary: 238 70% 68%;
+  --sidebar-primary-foreground: 238 40% 10%;
+  --sidebar-accent: 238 28% 16%;
+  --sidebar-accent-foreground: 238 65% 80%;
+  --sidebar-ring: 238 70% 68%;
+}
+
+/* ── Cyan ── */
+.accent-cyan {
+  --ring: 188 78% 46%;
+  --primary: 188 78% 46%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 188 65% 90%;
+  --accent-foreground: 188 65% 18%;
+  --sidebar-primary: 188 78% 46%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 188 60% 89%;
+  --sidebar-accent-foreground: 188 65% 18%;
+  --sidebar-ring: 188 78% 46%;
+}
+.dark.accent-cyan, .dark .accent-cyan {
+  --ring: 188 72% 54%;
+  --primary: 188 72% 54%;
+  --primary-foreground: 188 60% 8%;
+  --accent: 188 30% 16%;
+  --accent-foreground: 188 70% 76%;
+  --sidebar-primary: 188 72% 54%;
+  --sidebar-primary-foreground: 188 60% 8%;
+  --sidebar-accent: 188 28% 14%;
+  --sidebar-accent-foreground: 188 65% 76%;
+  --sidebar-ring: 188 72% 54%;
+}
+
+/* ── Amber ── */
+.accent-amber {
+  --ring: 38 90% 50%;
+  --primary: 38 90% 50%;
+  --primary-foreground: 38 60% 8%;
+  --accent: 38 80% 92%;
+  --accent-foreground: 38 70% 20%;
+  --sidebar-primary: 38 90% 50%;
+  --sidebar-primary-foreground: 38 60% 8%;
+  --sidebar-accent: 38 75% 90%;
+  --sidebar-accent-foreground: 38 70% 20%;
+  --sidebar-ring: 38 90% 50%;
+}
+.dark.accent-amber, .dark .accent-amber {
+  --ring: 38 88% 58%;
+  --primary: 38 88% 58%;
+  --primary-foreground: 38 60% 8%;
+  --accent: 38 35% 16%;
+  --accent-foreground: 38 85% 78%;
+  --sidebar-primary: 38 88% 58%;
+  --sidebar-primary-foreground: 38 60% 8%;
+  --sidebar-accent: 38 32% 14%;
+  --sidebar-accent-foreground: 38 82% 78%;
+  --sidebar-ring: 38 88% 58%;
+}
+
+/* ── Pink ── */
+.accent-pink {
+  --ring: 315 85% 60%;
+  --primary: 315 85% 60%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 315 70% 93%;
+  --accent-foreground: 315 60% 25%;
+  --sidebar-primary: 315 85% 60%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 315 65% 91%;
+  --sidebar-accent-foreground: 315 60% 25%;
+  --sidebar-ring: 315 85% 60%;
+}
+.dark.accent-pink, .dark .accent-pink {
+  --ring: 315 80% 66%;
+  --primary: 315 80% 66%;
+  --primary-foreground: 315 50% 10%;
+  --accent: 315 30% 18%;
+  --accent-foreground: 315 80% 82%;
+  --sidebar-primary: 315 80% 66%;
+  --sidebar-primary-foreground: 315 50% 10%;
+  --sidebar-accent: 315 28% 16%;
+  --sidebar-accent-foreground: 315 75% 80%;
+  --sidebar-ring: 315 80% 66%;
+}
+
 /* ═══════════════════════════════════════════════════
    COMPUTED BORDERS (using CSS relative color syntax)
 ═══════════════════════════════════════════════════ */
-:root, .accent-violet, .accent-blue, .accent-teal, .accent-green, .accent-rose, .accent-orange {
+:root, .accent-violet, .accent-indigo, .accent-blue, .accent-cyan,
+.accent-teal, .accent-green, .accent-amber, .accent-orange, .accent-rose, .accent-pink {
   --sidebar-primary-border: hsl(var(--sidebar-primary));
   --sidebar-primary-border: hsl(from hsl(var(--sidebar-primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
   --sidebar-accent-border: hsl(var(--sidebar-accent));

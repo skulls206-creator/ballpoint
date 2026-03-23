@@ -86,18 +86,23 @@ function getInitialAccent(): AccentColor {
 // PWA toolbar / status-bar theme-color per accent × theme
 const THEME_COLORS: Record<AccentColor, { dark: string; light: string }> = {
   violet: { dark: '#1a1525', light: '#7c5cfc' },
+  indigo: { dark: '#141328', light: '#5b4cf7' },
   blue:   { dark: '#121729', light: '#3b82f6' },
+  cyan:   { dark: '#071d1e', light: '#0891b2' },
   teal:   { dark: '#0c1e1c', light: '#0d9488' },
   green:  { dark: '#0c1e10', light: '#16a34a' },
-  rose:   { dark: '#1e0f14', light: '#e11d48' },
+  amber:  { dark: '#1e1505', light: '#d97706' },
   orange: { dark: '#1e1208', light: '#ea580c' },
+  rose:   { dark: '#1e0f14', light: '#e11d48' },
+  pink:   { dark: '#1e0f1c', light: '#d535a7' },
 };
+
+const ALL_ACCENTS: AccentColor[] = ['violet', 'indigo', 'blue', 'cyan', 'teal', 'green', 'amber', 'orange', 'rose', 'pink'];
 
 function applyTheme(theme: 'light' | 'dark', accent: AccentColor) {
   const root = document.documentElement;
   root.classList.toggle('dark', theme === 'dark');
-  const accents: AccentColor[] = ['violet', 'blue', 'teal', 'green', 'rose', 'orange'];
-  accents.forEach(a => root.classList.remove(`accent-${a}`));
+  ALL_ACCENTS.forEach(a => root.classList.remove(`accent-${a}`));
   root.classList.add(`accent-${accent}`);
 
   // Dynamically update <meta name="theme-color"> so the installed PWA
@@ -111,6 +116,11 @@ function applyTheme(theme: 'light' | 'dark', accent: AccentColor) {
   }
   meta.content = color;
 }
+
+// ── Apply saved theme immediately on module load (before React mounts) ────────
+// Without this, users always see the default violet/light theme until after
+// login completes and init() runs — even if they had a dark/orange theme saved.
+applyTheme(getInitialTheme(), getInitialAccent());
 
 /** Merge flat file list with metadata map into enriched NoteFile[] */
 function mergeWithMeta(

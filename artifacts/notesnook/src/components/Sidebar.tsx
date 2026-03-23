@@ -11,12 +11,16 @@ import { usePWAInstall } from '../lib/usePWAInstall';
 import { cn } from '../lib/utils';
 
 const ACCENT_COLORS: { id: AccentColor; label: string; hsl: string }[] = [
-  { id: 'violet', label: 'Violet',  hsl: '252 87% 67%' },
-  { id: 'blue',   label: 'Blue',    hsl: '217 91% 60%' },
-  { id: 'teal',   label: 'Teal',    hsl: '174 72% 42%' },
-  { id: 'green',  label: 'Green',   hsl: '142 71% 42%' },
-  { id: 'rose',   label: 'Rose',    hsl: '347 87% 60%' },
-  { id: 'orange', label: 'Orange',  hsl: '24 95% 55%'  },
+  { id: 'violet', label: 'Violet', hsl: '252 87% 67%' },
+  { id: 'indigo', label: 'Indigo', hsl: '238 75% 62%' },
+  { id: 'blue',   label: 'Blue',   hsl: '217 91% 60%' },
+  { id: 'cyan',   label: 'Cyan',   hsl: '188 78% 46%' },
+  { id: 'teal',   label: 'Teal',   hsl: '174 72% 42%' },
+  { id: 'green',  label: 'Green',  hsl: '142 71% 42%' },
+  { id: 'amber',  label: 'Amber',  hsl: '38 90% 50%'  },
+  { id: 'orange', label: 'Orange', hsl: '24 95% 55%'  },
+  { id: 'rose',   label: 'Rose',   hsl: '347 87% 60%' },
+  { id: 'pink',   label: 'Pink',   hsl: '315 85% 60%' },
 ];
 
 export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => void }) {
@@ -90,7 +94,7 @@ export function Sidebar({ onOpenCommandPalette }: { onOpenCommandPalette: () => 
           {/* Accent colors */}
           <div>
             <p className="text-[9px] uppercase tracking-widest text-sidebar-foreground/35 mb-1.5 font-semibold">Theme Color</p>
-            <div className="grid grid-cols-6 gap-1">
+            <div className="grid grid-cols-5 gap-1.5">
               {ACCENT_COLORS.map(c => (
                 <button key={c.id} onClick={() => setAccentColor(c.id)} title={c.label}
                   style={{ backgroundColor: `hsl(${c.hsl})` }}

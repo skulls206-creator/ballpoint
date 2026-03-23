@@ -2,7 +2,7 @@ import { get, set } from 'idb-keyval';
 
 export type NoteStatus = 'active' | 'archived' | 'trashed';
 export type ReminderStatus = 'pending' | 'fired' | 'dismissed';
-export type AccentColor = 'violet' | 'blue' | 'teal' | 'green' | 'rose' | 'orange';
+export type AccentColor = 'violet' | 'indigo' | 'blue' | 'cyan' | 'teal' | 'green' | 'amber' | 'orange' | 'rose' | 'pink';
 
 export interface NoteMetadata {
   isFavorite: boolean;
