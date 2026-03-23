@@ -1,0 +1,53 @@
+Yes: the embedded app can absolutely tell that it’s inside KHURK OS and adjust its theme, or at least show a “hey, you’re inside KHURK OS, here’s how to make this look better” banner.�
+1. Can the iframe app detect it’s embedded?
+Inside each app (Playd, InstaGhost, etc.), you can run simple JS to detect “am I in an iframe?”:
+Check frame relationship: if (window.self !== window.top) { /* I am in an iframe */ }.�
+Or use window.frameElement (works same‑origin): if it’s not null, you’re embedded.�
+Or use document.referrer as a hint when it’s not same‑origin.�
+Once the app knows it’s in an iframe, you can:
+Switch to a special “embedded” theme (e.g., dark gray to match hollr).
+Hide that app’s own header/nav so it feels more “native” inside the shell.
+Show a subtle banner like: “You’re using Playd inside KHURK OS. Click here to open full page if the layout looks cramped.”
+2. Parent ↔ iframe “theme sync” (best way)
+For really smooth theming, have the parent (KHURK OS) and the child (embedded app) talk via postMessage:
+In KHURK OS (parent) you know the active theme: dark, light, brand color, etc.
+On iframe load, send a message into the iframe:
+// parent (KHURK OS)
+const iframe = document.getElementById('khurk-app-iframe');
+
+iframe.contentWindow.postMessage(
+  { type: 'KHURK_THEME', theme: 'dark', accent: '#5865F2' },
+  'https://playd.khurk.services'
+);
+In the child app (Playd, etc.), listen for that message and switch CSS variables or a theme context:
+// child (inside the embedded app)
+window.addEventListener('message', (event) => {
+  if (event.origin !== 'https://khurk.services' && !event.origin.endsWith('.khurk.services')) return;
+
+  if (event.data?.type === 'KHURK_THEME') {
+    // e.g., set a CSS class or CSS variables based on event.data.theme/accent
+    document.documentElement.dataset.khurkTheme = event.data.theme;
+  }
+});
+postMessage is the standard, safe way to do this across iframe boundaries.�
+With that:
+KHURK OS controls the overall palette.
+Each embedded app supports an “if I get KHURK_THEME = dark, I use my dark palette designed to blend with hollr.”
+If the app is opened standalone (not in an iframe, no postMessage received), it just uses its normal standalone theme.
+3. What if you don’t want to touch every app’s code?
+You still have options:
+Basic detection only: just use the window.self !== window.top detection and display a small banner in the app itself:
+“You’re running this inside KHURK OS. For best visual experience, enable the ‘KHURK theme’ in Settings.”
+Provide a theme toggle in each app’s settings that the user can flip once, e.g. “Match KHURK OS theme”.
+Over time, you add the postMessage listener to each app to do it automatically, but you don’t have to do it all at once.
+4. Reality check on “global smoothness”
+Some constraints so you’re not surprised:
+CSS from KHURK OS can’t reach inside the iframe; the embedded app is its own document. So all theming inside has to be done by that app itself, based on detection or messages.�
+You control both sides (*.khurk.services), so you’re in a perfect spot: same family of domains, you can coordinate headers and code.
+Start simple:
+Step 1: Each app detects iframe and uses a darker, flatter theme option.
+Step 2: Implement postMessage theme syncing so everything is consistent.
+If you want, I can write you a small “standard snippet” you can paste into every app that:
+Detects “am I in KHURK OS?”
+Listens for theme messages from the parent.
+Exposes a simple window.__khurkSetTheme hook or CSS variables you can use in Tailwind or vanilla CSS.

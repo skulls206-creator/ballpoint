@@ -7,6 +7,7 @@ import NotFound from "@/pages/not-found";
 import Home from "@/pages/Home";
 import AuthPage from "@/pages/AuthPage";
 import { AuthProvider, useAuth } from "@/lib/authContext";
+import { KhurkOSBanner } from "@/components/KhurkOSBanner";
 
 const queryClient = new QueryClient();
 
@@ -59,6 +60,7 @@ function App() {
       <AuthProvider>
         <TooltipProvider>
           <AppRouter />
+          <KhurkOSBanner />
           <Toaster />
         </TooltipProvider>
       </AuthProvider>
