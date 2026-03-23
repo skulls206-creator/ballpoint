@@ -1,4 +1,30 @@
 export const VAULT_KEY_FILENAME = '.ballpoint-key';
+
+// ── Binary (file attachment) encryption ──────────────────────────────────────
+// Format: [4 magic bytes][12 IV bytes][ciphertext]
+const BINARY_MAGIC = new Uint8Array([0x00, 0x42, 0x50, 0x01]); // \x00BP\x01
+
+export function isEncryptedBytes(data: Uint8Array): boolean {
+  return data.length >= 16 &&
+    data[0] === 0x00 && data[1] === 0x42 && data[2] === 0x50 && data[3] === 0x01;
+}
+
+export async function encryptBytes(data: Uint8Array, key: CryptoKey): Promise<Uint8Array> {
+  const iv = window.crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await window.crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, data);
+  const out = new Uint8Array(4 + 12 + ciphertext.byteLength);
+  out.set(BINARY_MAGIC, 0);
+  out.set(iv, 4);
+  out.set(new Uint8Array(ciphertext), 16);
+  return out;
+}
+
+export async function decryptBytes(data: Uint8Array, key: CryptoKey): Promise<Uint8Array> {
+  const iv = data.slice(4, 16);
+  const cipher = data.slice(16);
+  const plain = await window.crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, cipher);
+  return new Uint8Array(plain);
+}
 const ENC_HEADER = '<!-- BALLPOINT:ENC:v1 -->\n';
 
 export function isEncrypted(content: string): boolean {

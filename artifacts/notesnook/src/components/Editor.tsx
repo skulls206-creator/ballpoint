@@ -9,10 +9,15 @@ import {
   Heading1, Heading2, Heading3,
   List, ListOrdered, ListChecks, Quote, Minus,
   Image, History, Clock, ChevronRight,
+  Paperclip, Download, FileText as FileIcon, Loader2,
 } from 'lucide-react';
 import { useNotesStore } from '../lib/store';
 import { cn } from '../lib/utils';
 import { loadVersions, NoteVersion } from '../lib/versions';
+import {
+  writeAttachment, readAttachment, listAttachments, deleteAttachment,
+  AttachmentInfo, isImageMime, formatBytes,
+} from '../lib/attachments';
 
 // ─── Markdown Toolbar ─────────────────────────────────────────────────────────
 type WrapStyle = { prefix: string; suffix?: string; block?: boolean; line?: boolean; placeholder?: string };
@@ -387,6 +392,169 @@ function TextareaContextMenu({
   );
 }
 
+// ─── Insert at cursor (for image embed) ──────────────────────────────────────
+function insertAtCursor(
+  textarea: HTMLTextAreaElement,
+  text: string,
+  onChange: (val: string) => void
+) {
+  const { selectionStart: ss, selectionEnd: se, value } = textarea;
+  const newVal = value.slice(0, ss) + text + value.slice(se);
+  onChange(newVal);
+  requestAnimationFrame(() => {
+    textarea.focus();
+    textarea.setSelectionRange(ss + text.length, ss + text.length);
+  });
+}
+
+// ─── Attachment Strip ─────────────────────────────────────────────────────────
+function AttachmentStrip({
+  noteId,
+  vault,
+  encryptionKey,
+  textareaRef,
+  onContentChange,
+}: {
+  noteId: string;
+  vault: FileSystemDirectoryHandle;
+  encryptionKey: CryptoKey | null;
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  onContentChange: (val: string) => void;
+}) {
+  const [attachments,  setAttachments]  = useState<AttachmentInfo[]>([]);
+  const [uploading,    setUploading]    = useState(false);
+  const [downloading,  setDownloading]  = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const reload = useCallback(() => {
+    listAttachments(vault, noteId).then(setAttachments).catch(() => {});
+  }, [vault, noteId]);
+
+  useEffect(() => { reload(); }, [reload]);
+
+  const processFiles = useCallback(async (files: File[]) => {
+    if (!files.length) return;
+    setUploading(true);
+    for (const file of files) {
+      const isImg = file.type.startsWith('image/');
+      if (isImg) {
+        // Embed image inline as base64 — encrypted as part of the note content
+        const reader = new FileReader();
+        await new Promise<void>(resolve => {
+          reader.onload = () => {
+            const dataUrl = reader.result as string;
+            const md = `\n![${file.name}](${dataUrl})\n`;
+            if (textareaRef.current) insertAtCursor(textareaRef.current, md, onContentChange);
+            resolve();
+          };
+          reader.readAsDataURL(file);
+        });
+      } else {
+        // Store non-image files in vault — encrypted if key present
+        const data = new Uint8Array(await file.arrayBuffer());
+        await writeAttachment(vault, noteId, file.name, data, encryptionKey);
+      }
+    }
+    setUploading(false);
+    reload();
+  }, [vault, noteId, encryptionKey, textareaRef, onContentChange, reload]);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = '';
+    processFiles(files);
+  };
+
+  const handleDownload = async (info: AttachmentInfo) => {
+    setDownloading(info.name);
+    try {
+      const data = await readAttachment(vault, noteId, info.name, encryptionKey);
+      const blob = new Blob([data], { type: info.mime });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href = url; a.download = info.name; a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setDownloading(null);
+    }
+  };
+
+  const handleDelete = async (info: AttachmentInfo) => {
+    if (!confirm(`Delete attachment "${info.name}"?`)) return;
+    await deleteAttachment(vault, noteId, info.name);
+    reload();
+  };
+
+  const hasAttachments = attachments.length > 0;
+
+  if (!hasAttachments && !uploading) {
+    return (
+      <div className="shrink-0 flex items-center px-3 py-1 border-b border-border bg-card/20">
+        <input ref={fileInputRef} type="file" multiple hidden onChange={handleInputChange} />
+        <button
+          onMouseDown={e => { e.preventDefault(); fileInputRef.current?.click(); }}
+          className="flex items-center gap-1.5 text-[11px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
+        >
+          <Paperclip size={11} /> Attach file
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="shrink-0 border-b border-border bg-card/20 px-3 py-1.5 space-y-1">
+      <input ref={fileInputRef} type="file" multiple hidden onChange={handleInputChange} />
+
+      {/* File chips */}
+      <div className="flex flex-wrap gap-1.5 items-center">
+        {attachments.map(info => (
+          <div key={info.name}
+            className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-muted border border-border text-[11px] text-foreground group max-w-[220px]"
+          >
+            <FileIcon size={10} className="text-muted-foreground/50 shrink-0" />
+            <span className="truncate flex-1 min-w-0" title={info.name}>{info.name}</span>
+            <span className="text-[10px] text-muted-foreground/40 shrink-0">{formatBytes(info.size)}</span>
+            {encryptionKey && (
+              <span title="Encrypted" className="text-[9px] text-green-500 shrink-0">🔒</span>
+            )}
+            <button
+              onClick={() => handleDownload(info)}
+              disabled={downloading === info.name}
+              title="Download"
+              className="text-muted-foreground/40 hover:text-foreground transition-colors shrink-0 disabled:opacity-50"
+            >
+              {downloading === info.name ? <Loader2 size={10} className="animate-spin" /> : <Download size={10} />}
+            </button>
+            <button
+              onClick={() => handleDelete(info)}
+              title="Delete"
+              className="text-muted-foreground/40 hover:text-destructive transition-colors shrink-0"
+            >
+              <X size={10} />
+            </button>
+          </div>
+        ))}
+
+        {/* Uploading indicator */}
+        {uploading && (
+          <div className="flex items-center gap-1 px-2 py-1 rounded-md bg-muted border border-border text-[11px] text-muted-foreground/60">
+            <Loader2 size={10} className="animate-spin" /> Uploading…
+          </div>
+        )}
+
+        {/* Add more button */}
+        <button
+          onMouseDown={e => { e.preventDefault(); fileInputRef.current?.click(); }}
+          title="Attach another file"
+          className="flex items-center gap-1 px-2 py-1 rounded-md border border-dashed border-border text-[11px] text-muted-foreground/40 hover:text-muted-foreground hover:border-muted-foreground/40 transition-colors"
+        >
+          <Paperclip size={10} /> Attach
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ─── Tag Input ──────────────────────────────────────────────────────────────
 function TagInput({ tags, onChange }: { tags: string[]; onChange: (tags: string[]) => void }) {
   const [input, setInput] = useState('');
@@ -549,14 +717,18 @@ export function Editor() {
 
   const userId        = useNotesStore(s => s.userId);
   const encryptionKey = useNotesStore(s => s.encryptionKey);
+  const vaultHandle   = useNotesStore(s => s.vaultHandle);
 
   const [showPreview,  setShowPreview]  = useState(false);
   const [showHistory,  setShowHistory]  = useState(false);
   const [ctxMenu,      setCtxMenu]      = useState<CtxPos | null>(null);
+  const [dragOver,     setDragOver]     = useState(false);
   const [titleValue,   setTitleValue]   = useState('');
-  const titleRef     = useRef<HTMLInputElement>(null);
-  const textareaRef  = useRef<HTMLTextAreaElement>(null);
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout>>();
+  const titleRef        = useRef<HTMLInputElement>(null);
+  const textareaRef     = useRef<HTMLTextAreaElement>(null);
+  const saveTimerRef    = useRef<ReturnType<typeof setTimeout>>();
+  // key bumped on drop so AttachmentStrip re-mounts and reloads its file list
+  const [dropKey,      setDropKey]      = useState(0);
 
   // Compute activeNote locally — notes is a stable ref until refreshNotes() replaces it
   const activeNote = useMemo(
@@ -580,6 +752,29 @@ export function Editor() {
   }, [updateContent, saveActiveNote]);
 
   useEffect(() => () => clearTimeout(saveTimerRef.current), []);
+
+  // Drag-and-drop file handler for the whole editor pane
+  const handleEditorDrop = useCallback(async (e: React.DragEvent) => {
+    e.preventDefault();
+    setDragOver(false);
+    if (!vaultHandle || !activeNoteId || isReadOnly) return;
+    const files = Array.from(e.dataTransfer.files);
+    for (const file of files) {
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = reader.result as string;
+          const md = `\n![${file.name}](${dataUrl})\n`;
+          if (textareaRef.current) insertAtCursor(textareaRef.current, md, handleContentChange);
+        };
+        reader.readAsDataURL(file);
+      } else {
+        const data = new Uint8Array(await file.arrayBuffer());
+        await writeAttachment(vaultHandle, activeNoteId, file.name, data, encryptionKey);
+      }
+    }
+    setDropKey(k => k + 1); // force AttachmentStrip to re-mount + reload
+  }, [vaultHandle, activeNoteId, isReadOnly, encryptionKey, handleContentChange]);
 
   // Ctrl+S manual save
   useEffect(() => {
@@ -636,7 +831,22 @@ export function Editor() {
   }
 
   return (
-    <div className="flex-1 flex flex-col bg-background h-full overflow-hidden">
+    <div
+      className="flex-1 flex flex-col bg-background h-full overflow-hidden relative"
+      onDragOver={e => { e.preventDefault(); if (!isReadOnly) setDragOver(true); }}
+      onDragLeave={e => { if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragOver(false); }}
+      onDrop={handleEditorDrop}
+    >
+      {/* Drag-over overlay */}
+      {dragOver && !isReadOnly && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-primary/10 border-2 border-dashed border-primary rounded-none pointer-events-none">
+          <div className="flex flex-col items-center gap-2 text-primary">
+            <Paperclip size={28} strokeWidth={1.5} />
+            <p className="text-sm font-medium">Drop files to attach</p>
+            <p className="text-xs opacity-70">Images embed inline · Other files stored in vault</p>
+          </div>
+        </div>
+      )}
       {/* ── Header ── */}
       <header className="shrink-0 border-b border-border bg-card/20 px-4 pt-3 pb-2 space-y-1.5">
         {/* Title row */}
@@ -748,6 +958,18 @@ export function Editor() {
       {/* ── Markdown Toolbar ── */}
       {!isReadOnly && (
         <MarkdownToolbar textareaRef={textareaRef} onChange={handleContentChange} />
+      )}
+
+      {/* ── Attachment Strip ── */}
+      {!isReadOnly && vaultHandle && activeNoteId && (
+        <AttachmentStrip
+          key={`${activeNoteId}-${dropKey}`}
+          noteId={activeNoteId}
+          vault={vaultHandle}
+          encryptionKey={encryptionKey}
+          textareaRef={textareaRef}
+          onContentChange={handleContentChange}
+        />
       )}
 
       {/* ── Reminder fired banner ── */}
