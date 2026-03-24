@@ -62,12 +62,20 @@ export interface NoteSnapshot {
 
 // ─── Serialization ────────────────────────────────────────────────────────────
 
-/** Serialize an array of note snapshots to a JSON string (for Lighthouse upload). */
+/**
+ * Serialize an array of note snapshots to a JSON string.
+ * Returns a string (not Uint8Array) because lighthouse.uploadEncrypted() accepts
+ * File/Blob objects which wrap a string directly. The Kavach SDK handles encryption
+ * of the file content internally.
+ */
 export function serializeNotes(notes: NoteSnapshot[]): string {
   return JSON.stringify(notes);
 }
 
-/** Deserialize a JSON string back to note snapshots (after Lighthouse decrypt). */
+/**
+ * Deserialize a JSON string back to note snapshots.
+ * Called after lighthouse.decryptFile() returns the decrypted plaintext.
+ */
 export function deserializeNotes(json: string): NoteSnapshot[] {
   return JSON.parse(json) as NoteSnapshot[];
 }

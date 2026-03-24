@@ -862,12 +862,13 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
     set({ syncStatus: 'uploading', syncError: null });
     try {
-      // Serialize active notes as plaintext snapshots for the backup bundle.
-      // If vault is encrypted, content must be read from note files and decrypted first.
-      const activeNotes = notes.filter(n => n.status === 'active');
+      // Serialize ALL notes (active, archived, trashed) as plaintext snapshots for the backup.
+      // Trashed/archived notes are included so a restore brings back the full note state.
+      // If vault is encrypted, content is decrypted before serialization.
+      const allNotes = notes;
       const snapshots: NoteSnapshot[] = [];
 
-      for (const note of activeNotes) {
+      for (const note of allNotes) {
         try {
           let content = '';
           if (get().proxyVault !== null) {
@@ -885,9 +886,9 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       const record = await _backupNow(token, userId, snapshots);
       set({ syncStatus: 'idle', lastSyncRecord: record, syncHistory: [record, ...get().syncHistory].slice(0, 50) });
 
-      // Mark all active notes as synced
+      // Mark all notes as synced
       const newMeta = { ...metadata };
-      for (const note of activeNotes) {
+      for (const note of allNotes) {
         if (newMeta[note.id]) newMeta[note.id] = { ...newMeta[note.id], remoteStatus: 'synced' };
       }
       await saveAllMetadata(userId, newMeta);
@@ -916,14 +917,18 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         }
         set({ proxyContent: updated });
       } else if (vaultHandle) {
-        const { saveNote: sn, createNote: cn } = await import('./fileSystem');
+        const { saveNote: sn, createNote: cn, renameNote: rnote } = await import('./fileSystem');
         const { encryptContent: ec } = await import('./crypto');
         for (const snap of snapshots) {
           const content = encryptionKey ? await ec(snap.content, encryptionKey) : snap.content;
           try {
             const note = get().notes.find(n => n.id === snap.id);
             if (note) {
+              // Update content; also rename if title differs
               await sn(note.handle, content);
+              if (note.title !== snap.title) {
+                try { await rnote(vaultHandle, note.handle, snap.title); } catch { /* ignore rename errors */ }
+              }
             } else {
               // Create new note with the snapshot's title, then write its content
               const newHandle = await cn(vaultHandle, snap.title);
