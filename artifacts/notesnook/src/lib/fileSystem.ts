@@ -34,8 +34,11 @@ export async function openVault(userId: number): Promise<FileSystemDirectoryHand
     const dir = await window.showDirectoryPicker({ mode: 'readwrite' });
     await set(vaultKey(userId), dir);
     return dir;
-  } catch {
-    return null;
+  } catch (e: any) {
+    // User canceled the picker — not an error worth surfacing
+    if (e?.name === 'AbortError') return null;
+    // Re-throw everything else (SecurityError for iframe blocks, etc.)
+    throw e;
   }
 }
 
