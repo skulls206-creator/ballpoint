@@ -76,6 +76,9 @@
     "zod": "catalog:"
   },
   "dependencies": {
+    "@lighthouse-web3/kavach": "^0.2.1",
+    "@lighthouse-web3/sdk": "^0.4.4",
+    "bls-eth-wasm": "^1.4.0",
     "dompurify": "^3.3.3",
     "idb-keyval": "^6.2.2",
     "marked": "^17.0.5",

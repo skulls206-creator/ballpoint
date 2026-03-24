@@ -1,29 +1,48 @@
 /**
- * Sync engine: orchestrates Lighthouse backup and restore.
+ * Sync engine: orchestrates Lighthouse + Kavach encrypted backup and restore.
  *
- * Encryption flow (LIGHTHOUSE mode):
- *   1. POST /sync/sign "ballpoint-sync-key-v1" → deterministic ETH signature
- *   2. SHA-256(signature) → AES-256-GCM key (tied to ETH wallet, server-side key)
- *   3. Encrypt serialized notes bundle
- *   4. Upload to Lighthouse via POST /sync/upload
- *   5. Store SyncRecord in IndexedDB
+ * LIGHTHOUSE mode (default) — full Kavach flow via @lighthouse-web3/sdk:
+ *   Backup:
+ *     1. GET /sync/wallet → wallet address + Lighthouse API key
+ *     2. lighthouse.getAuthMessage(address) → Kavach challenge
+ *     3. POST /sync/sign with challenge → ETH signature (server-side key)
+ *     4. lighthouse.uploadEncrypted([file], apiKey, address, signature)
+ *          - kavach.generate() creates BLS master key + key shards
+ *          - File encrypted locally with master key (PBKDF2 + AES-GCM)
+ *          - Ciphertext uploaded to Lighthouse IPFS → returns CID
+ *          - Key shards saved to Kavach nodes (wallet-address access control)
  *
- * Restore flow:
- *   1. Re-derive same key via /sync/sign
- *   2. Download ciphertext from IPFS via GET /sync/download/:cid
- *   3. Decrypt and deserialize
+ *   Restore:
+ *     1. GET /sync/wallet → wallet address
+ *     2. lighthouse.getAuthMessage(address) → Kavach challenge
+ *     3. POST /sync/sign with challenge → ETH signature
+ *     4. lighthouse.fetchEncryptionKey(cid, address, signature)
+ *          - Recovers key shards from Kavach nodes
+ *          - kavach.recoverKey(shards) reconstructs BLS master key
+ *     5. lighthouse.decryptFile(cid, masterKey)
+ *          - Downloads ciphertext from IPFS gateway
+ *          - Decrypts using recovered master key → JSON blob → NoteSnapshot[]
+ *
+ * LOCAL_WEBCRYPTO mode (dev/testing fallback):
+ *   Uses AES-256-GCM with a locally-stored random seed key.
+ *   Notes are encrypted/decrypted entirely in-browser; no Kavach or Lighthouse involved.
+ *   NOT wallet-tied, not suitable for production.
  */
 
 import { get, set } from "idb-keyval";
 import {
-  SYNC_ENCRYPTION_MODE, SYNC_KEY_DERIVATION_MESSAGE,
-  serializeNotes, deserializeNotes,
-  deriveKeyFromSignature, deriveLocalFallbackKey,
-  encryptForSync, decryptFromSync,
+  SYNC_ENCRYPTION_MODE,
+  serializeNotes,
+  deserializeNotes,
+  deriveLocalFallbackKey,
+  encryptForLocalSync,
+  decryptForLocalSync,
   NoteSnapshot,
 } from "./syncEncryption";
 import {
-  signMessage, uploadEncryptedBlob, downloadEncryptedBlob,
+  getWalletInfo,
+  uploadEncryptedNotes,
+  decryptNotesFromCid,
 } from "./lighthouseClient";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -41,38 +60,40 @@ function syncHistoryKey(userId: number) {
   return `ballpoint-sync-history-${userId}`;
 }
 
-// ─── Key derivation (mode-aware) ──────────────────────────────────────────────
-
-async function deriveSyncKey(token: string, userId: number): Promise<CryptoKey> {
-  if (SYNC_ENCRYPTION_MODE === "LIGHTHOUSE") {
-    const { signature } = await signMessage(token, SYNC_KEY_DERIVATION_MESSAGE);
-    return deriveKeyFromSignature(signature);
-  }
-  return deriveLocalFallbackKey(userId);
-}
-
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
- * Backup all notes to Lighthouse IPFS (encrypted).
- * Returns the new SyncRecord.
+ * Backup all notes to Lighthouse IPFS using Kavach encryption (LIGHTHOUSE mode)
+ * or local AES-256-GCM (LOCAL_WEBCRYPTO mode).
+ * Returns the new SyncRecord saved to IndexedDB history.
  */
 export async function backupNow(
   token: string,
   userId: number,
   notes: NoteSnapshot[],
 ): Promise<SyncRecord> {
-  const key = await deriveSyncKey(token, userId);
-  const serialized = serializeNotes(notes);
-  const encrypted = await encryptForSync(serialized, key);
+  const json = serializeNotes(notes);
 
-  let walletAddress = "local";
+  let cid: string;
+  let walletAddress: string;
+  let sizeBytes: number;
+
   if (SYNC_ENCRYPTION_MODE === "LIGHTHOUSE") {
-    const { address } = await signMessage(token, SYNC_KEY_DERIVATION_MESSAGE);
+    const { address, lighthouseApiKey, hasLighthouseKey } = await getWalletInfo(token);
+    if (!hasLighthouseKey) {
+      throw new Error("Lighthouse API key is not configured on the server");
+    }
     walletAddress = address;
+    cid = await uploadEncryptedNotes(token, address, lighthouseApiKey, json);
+    sizeBytes = new TextEncoder().encode(json).byteLength;
+  } else {
+    const key = await deriveLocalFallbackKey(userId);
+    const ciphertext = await encryptForLocalSync(json, key);
+    cid = `local-${Date.now()}`;
+    walletAddress = "local";
+    sizeBytes = ciphertext.length;
+    await set(`ballpoint-local-backup-${userId}-${cid}`, ciphertext);
   }
-
-  const cid = await uploadEncryptedBlob(token, encrypted);
 
   const record: SyncRecord = {
     cid,
@@ -80,7 +101,7 @@ export async function backupNow(
     noteCount: notes.length,
     walletAddress,
     encryptionMode: SYNC_ENCRYPTION_MODE,
-    sizeBytes: encrypted.byteLength,
+    sizeBytes,
   };
 
   const history = await loadSyncHistory(userId);
@@ -91,7 +112,8 @@ export async function backupNow(
 }
 
 /**
- * Restore notes from a Lighthouse CID.
+ * Restore notes from a Lighthouse CID using Kavach key recovery (LIGHTHOUSE mode)
+ * or from IndexedDB (LOCAL_WEBCRYPTO mode).
  * Returns the decrypted note snapshots.
  */
 export async function restoreFromCid(
@@ -99,10 +121,17 @@ export async function restoreFromCid(
   userId: number,
   cid: string,
 ): Promise<NoteSnapshot[]> {
-  const key = await deriveSyncKey(token, userId);
-  const encrypted = await downloadEncryptedBlob(token, cid);
-  const decrypted = await decryptFromSync(encrypted, key);
-  return deserializeNotes(decrypted);
+  if (SYNC_ENCRYPTION_MODE === "LIGHTHOUSE") {
+    const { address } = await getWalletInfo(token);
+    const json = await decryptNotesFromCid(token, address, cid);
+    return deserializeNotes(json);
+  }
+
+  const ciphertext = await get<string>(`ballpoint-local-backup-${userId}-${cid}`);
+  if (!ciphertext) throw new Error(`No local backup found for CID: ${cid}`);
+  const key = await deriveLocalFallbackKey(userId);
+  const json = await decryptForLocalSync(ciphertext, key);
+  return deserializeNotes(json);
 }
 
 /** Load the backup history for a user from IndexedDB. */

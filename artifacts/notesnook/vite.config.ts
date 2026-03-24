@@ -54,9 +54,23 @@ export default defineConfig({
     dedupe: ["react", "react-dom"],
   },
   root: path.resolve(import.meta.dirname),
+  optimizeDeps: {
+    include: [
+      "@lighthouse-web3/sdk",
+      "@lighthouse-web3/kavach",
+      "bls-eth-wasm",
+    ],
+    esbuildOptions: {
+      target: "esnext",
+    },
+  },
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    target: "esnext",
+    commonjsOptions: {
+      transformMixedEsModules: true,
+    },
   },
   server: {
     port,

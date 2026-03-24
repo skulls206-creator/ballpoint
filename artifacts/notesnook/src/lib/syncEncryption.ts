@@ -1,18 +1,28 @@
 /**
- * Sync encryption utilities for Ballpoint cloud backup.
+ * Sync encryption utilities — LOCAL_WEBCRYPTO mode only.
  *
- * SYNC_ENCRYPTION_MODE:
- *   "LIGHTHOUSE" — AES-256-GCM key derived from ETH wallet signature (server-side key)
- *   "LOCAL_WEBCRYPTO" — AES-256-GCM key derived from a locally-stored random seed
- *                        (dev/testing only — not tied to ETH wallet)
+ * SYNC_ENCRYPTION_MODE determines which encryption backend is used:
+ *
+ *   "LIGHTHOUSE" (default, production):
+ *       Uses @lighthouse-web3/sdk + @lighthouse-web3/kavach for true Kavach encryption.
+ *       The browser calls lighthouse.uploadEncrypted() which internally:
+ *         - Generates a BLS master key + key shards via kavach.generate()
+ *         - Encrypts the file locally (PBKDF2 + AES-GCM)
+ *         - Uploads the ciphertext to Lighthouse IPFS
+ *         - Stores key shards on Kavach nodes (access-controlled by wallet address)
+ *       Decryption is via lighthouse.fetchEncryptionKey() + lighthouse.decryptFile().
+ *       The ETH private key stays server-side; the server only signs Kavach challenge messages.
+ *       See lighthouseClient.ts and syncEngine.ts for the full Kavach flow.
+ *
+ *   "LOCAL_WEBCRYPTO" (dev/testing fallback):
+ *       AES-256-GCM encryption with a key derived from a locally-stored random seed.
+ *       NOT tied to the ETH wallet. Data is lost if the seed is cleared.
+ *       Used only for offline testing when Lighthouse / ETH key are not configured.
  */
 
 export type SyncEncryptionMode = "LIGHTHOUSE" | "LOCAL_WEBCRYPTO";
 
 export const SYNC_ENCRYPTION_MODE: SyncEncryptionMode = "LIGHTHOUSE";
-
-/** Deterministic message signed by server ETH key to derive sync encryption key */
-export const SYNC_KEY_DERIVATION_MESSAGE = "ballpoint-sync-key-v1";
 
 // ─── Note snapshot ───────────────────────────────────────────────────────────
 
@@ -25,27 +35,18 @@ export interface NoteSnapshot {
 
 // ─── Serialization ────────────────────────────────────────────────────────────
 
-/** Serialize an array of note snapshots to a JSON Uint8Array */
-export function serializeNotes(notes: NoteSnapshot[]): Uint8Array {
-  return new TextEncoder().encode(JSON.stringify(notes));
+/** Serialize an array of note snapshots to a JSON string (for Lighthouse upload). */
+export function serializeNotes(notes: NoteSnapshot[]): string {
+  return JSON.stringify(notes);
 }
 
-/** Deserialize a Uint8Array back to note snapshots */
-export function deserializeNotes(buf: Uint8Array): NoteSnapshot[] {
-  return JSON.parse(new TextDecoder().decode(buf)) as NoteSnapshot[];
+/** Deserialize a JSON string back to note snapshots (after Lighthouse decrypt). */
+export function deserializeNotes(json: string): NoteSnapshot[] {
+  return JSON.parse(json) as NoteSnapshot[];
 }
 
-// ─── Key derivation ───────────────────────────────────────────────────────────
-
-/**
- * Derive a 256-bit AES-GCM key from a hex signature (deterministic, from ETH private key).
- * LIGHTHOUSE mode: signature comes from POST /sync/sign with SYNC_KEY_DERIVATION_MESSAGE.
- */
-export async function deriveKeyFromSignature(signatureHex: string): Promise<CryptoKey> {
-  const sigBytes = hexToBytes(signatureHex);
-  const hashBuf = await crypto.subtle.digest("SHA-256", sigBytes.buffer as ArrayBuffer);
-  return crypto.subtle.importKey("raw", hashBuf, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
-}
+// ─── LOCAL_WEBCRYPTO: Key derivation & encryption ─────────────────────────────
+// Used ONLY when SYNC_ENCRYPTION_MODE === "LOCAL_WEBCRYPTO".
 
 /**
  * LOCAL_WEBCRYPTO fallback: derive key from a locally-stored random seed.
@@ -60,27 +61,33 @@ export async function deriveLocalFallbackKey(userId: number): Promise<CryptoKey>
     localStorage.setItem(storeKey, seedHex);
   }
   const seedBytes = hexToBytes(seedHex);
-  return crypto.subtle.importKey("raw", seedBytes.buffer as ArrayBuffer, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
+  return crypto.subtle.importKey(
+    "raw",
+    seedBytes.buffer as ArrayBuffer,
+    { name: "AES-GCM", length: 256 },
+    false,
+    ["encrypt", "decrypt"],
+  );
 }
 
-// ─── Encrypt / Decrypt ────────────────────────────────────────────────────────
-
-/** Encrypt a Uint8Array with AES-256-GCM. Returns [12-byte IV || ciphertext]. */
-export async function encryptForSync(data: Uint8Array, key: CryptoKey): Promise<Uint8Array> {
+/** Encrypt a string with AES-256-GCM. Returns base64-encoded [12-byte IV || ciphertext]. */
+export async function encryptForLocalSync(plaintext: string, key: CryptoKey): Promise<string> {
   const iv = crypto.getRandomValues(new Uint8Array(12));
+  const data = new TextEncoder().encode(plaintext);
   const ciphertext = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, data.buffer as ArrayBuffer);
   const out = new Uint8Array(12 + ciphertext.byteLength);
   out.set(iv, 0);
   out.set(new Uint8Array(ciphertext), 12);
-  return out;
+  return bytesToBase64(out);
 }
 
-/** Decrypt a Uint8Array produced by encryptForSync. */
-export async function decryptFromSync(data: Uint8Array, key: CryptoKey): Promise<Uint8Array> {
+/** Decrypt a base64-encoded blob produced by encryptForLocalSync. */
+export async function decryptForLocalSync(b64: string, key: CryptoKey): Promise<string> {
+  const data = base64ToBytes(b64);
   const iv = data.slice(0, 12);
   const cipher = data.slice(12);
   const plain = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, cipher.buffer as ArrayBuffer);
-  return new Uint8Array(plain);
+  return new TextDecoder().decode(plain);
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -103,5 +110,7 @@ function hexToBytes(hex: string): Uint8Array {
 }
 
 function bytesToHex(bytes: Uint8Array): string {
-  return Array.from(bytes).map(b => b.toString(16).padStart(2, "0")).join("");
+  return Array.from(bytes)
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("");
 }

@@ -1,8 +1,24 @@
 /**
- * Lighthouse cloud backup client.
- * All calls go through our API server (/sync/*) — the Lighthouse API key
- * and ETH private key never touch the browser.
+ * Lighthouse cloud backup client — uses @lighthouse-web3/sdk and @lighthouse-web3/kavach.
+ *
+ * Kavach authentication flow (all ETH signing is server-side):
+ *   1. Browser calls lighthouse.getAuthMessage(walletAddress) → gets Kavach challenge message
+ *   2. Browser POSTs that message to our /sync/sign endpoint → gets ETH signature
+ *   3. Browser passes walletAddress + signature to lighthouse.uploadEncrypted() or fetchEncryptionKey()
+ *
+ * Encryption:
+ *   - lighthouse.uploadEncrypted() uses Kavach internally:
+ *       kavach.generate() → BLS master key + key shards
+ *       file encrypted locally with master key (PBKDF2 + AES-GCM via @lighthouse-web3/sdk)
+ *       key shards saved to Kavach nodes (access-controlled by wallet address)
+ *   - lighthouse.fetchEncryptionKey(cid, address, signature) recovers master key from Kavach nodes
+ *   - lighthouse.decryptFile(cid, masterKey) downloads + decrypts from IPFS gateway
+ *
+ * The ETH private key never leaves the server.
+ * The Lighthouse API key is passed directly to the SDK from the /sync/wallet response.
  */
+
+import lighthouse from "@lighthouse-web3/sdk";
 
 const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
 const API = `${BASE}/api`;
@@ -11,7 +27,7 @@ function authHeaders(token: string): HeadersInit {
   return { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
 }
 
-// ─── Wallet / Signing ─────────────────────────────────────────────────────────
+// ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface WalletInfo {
   address: string;
@@ -19,13 +35,24 @@ export interface WalletInfo {
   hasLighthouseKey: boolean;
 }
 
+// ─── Server endpoints (wallet address + signing only) ─────────────────────────
+
+/** GET /sync/wallet — returns ETH wallet address and Lighthouse API key. */
 export async function getWalletInfo(token: string): Promise<WalletInfo> {
   const res = await fetch(`${API}/sync/wallet`, { headers: authHeaders(token) });
   if (!res.ok) throw new Error(`Failed to fetch wallet info: ${res.status}`);
   return res.json() as Promise<WalletInfo>;
 }
 
-export async function signMessage(token: string, message: string): Promise<{ signature: string; address: string }> {
+/**
+ * POST /sync/sign — signs a message with the server-side ETH private key.
+ * Used to authenticate with Lighthouse Kavach by signing the challenge message
+ * returned from lighthouse.getAuthMessage().
+ */
+export async function signMessage(
+  token: string,
+  message: string,
+): Promise<{ signature: string; address: string }> {
   const res = await fetch(`${API}/sync/sign`, {
     method: "POST",
     headers: authHeaders(token),
@@ -35,39 +62,106 @@ export async function signMessage(token: string, message: string): Promise<{ sig
   return res.json() as Promise<{ signature: string; address: string }>;
 }
 
-// ─── Upload / Download ────────────────────────────────────────────────────────
+// ─── Kavach auth helper ────────────────────────────────────────────────────────
 
-/** Upload an encrypted Uint8Array to Lighthouse. Returns the CID. */
-export async function uploadEncryptedBlob(token: string, data: Uint8Array, filename = "backup.bin"): Promise<string> {
-  const b64 = btoa(String.fromCharCode(...data));
-  const res = await fetch(`${API}/sync/upload`, {
-    method: "POST",
-    headers: authHeaders(token),
-    body: JSON.stringify({ data: b64, filename }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText })) as { error: string };
-    throw new Error(`Upload failed: ${err.error}`);
-  }
-  const { cid } = await res.json() as { cid: string };
+/**
+ * Obtains a Kavach-signed authentication token by:
+ *   1. Fetching the Kavach challenge message from Lighthouse
+ *   2. Signing it via our server's /sync/sign endpoint (ETH private key server-side)
+ *
+ * Returns the raw ETH signature (0x...) which serves as the Kavach auth token
+ * for single-wallet encrypted uploads and key recovery.
+ */
+export async function getKavachSignedToken(
+  jwtToken: string,
+  walletAddress: string,
+): Promise<string> {
+  const { data } = await lighthouse.getAuthMessage(walletAddress);
+  const challengeMessage: string = data?.message;
+  if (!challengeMessage) throw new Error("Failed to retrieve Kavach auth message from Lighthouse");
+  const { signature } = await signMessage(jwtToken, challengeMessage);
+  return signature;
+}
+
+// ─── Lighthouse SDK — upload & decrypt ────────────────────────────────────────
+
+/**
+ * Uploads an encrypted notes bundle to Lighthouse IPFS using Kavach encryption.
+ *
+ * Flow:
+ *   1. Serialize notes as a JSON Blob → File object
+ *   2. Get Kavach auth token (server signs Kavach challenge)
+ *   3. lighthouse.uploadEncrypted([file], apiKey, address, signature)
+ *      → SDK generates BLS master key + shards via kavach.generate()
+ *      → Encrypts file locally with master key (PBKDF2 + AES-GCM)
+ *      → Uploads ciphertext to Lighthouse IPFS
+ *      → Saves key shards to Kavach nodes (access-controlled by walletAddress)
+ *   Returns the IPFS CID of the encrypted backup.
+ */
+export async function uploadEncryptedNotes(
+  jwtToken: string,
+  walletAddress: string,
+  apiKey: string,
+  notesJson: string,
+): Promise<string> {
+  const blob = new Blob([notesJson], { type: "application/json" });
+  const file = new File([blob], "ballpoint-backup.json", { type: "application/json" });
+
+  const signedMessage = await getKavachSignedToken(jwtToken, walletAddress);
+
+  const response = await lighthouse.uploadEncrypted(
+    [file] as unknown as FileList,
+    apiKey,
+    walletAddress,
+    signedMessage,
+  );
+
+  const uploads = Array.isArray(response?.data) ? response.data : [response?.data];
+  const first = uploads[0] as { Hash?: string; Name?: string; Size?: string } | undefined;
+  const cid = first?.Hash;
+  if (!cid) throw new Error("Lighthouse did not return a CID after encrypted upload");
   return cid;
 }
 
-/** Download an encrypted blob from IPFS via the server proxy. Returns Uint8Array. */
-export async function downloadEncryptedBlob(token: string, cid: string): Promise<Uint8Array> {
-  const res = await fetch(`${API}/sync/download/${encodeURIComponent(cid)}`, {
-    headers: authHeaders(token),
+/**
+ * Restores notes from a Lighthouse CID using Kavach key recovery.
+ *
+ * Flow:
+ *   1. Get Kavach auth token (server signs Kavach challenge)
+ *   2. lighthouse.fetchEncryptionKey(cid, address, signature)
+ *      → Recovers key shards from Kavach nodes
+ *      → Reconstructs BLS master key via kavach.recoverKey()
+ *   3. lighthouse.decryptFile(cid, masterKey)
+ *      → Downloads encrypted file from IPFS gateway
+ *      → Decrypts using the recovered master key (PBKDF2 + AES-GCM)
+ *   Returns parsed notes array.
+ */
+export async function decryptNotesFromCid(
+  jwtToken: string,
+  walletAddress: string,
+  cid: string,
+): Promise<string> {
+  const signedMessage = await getKavachSignedToken(jwtToken, walletAddress);
+
+  const keyResponse = await lighthouse.fetchEncryptionKey(cid, walletAddress, signedMessage);
+  const masterKey: string | undefined = (keyResponse as { data?: { key?: string } })?.data?.key;
+  if (!masterKey) throw new Error("Failed to recover Kavach encryption key for CID: " + cid);
+
+  const decryptedBlob = await lighthouse.decryptFile(cid, masterKey);
+  if (!decryptedBlob) throw new Error("Failed to decrypt file from Lighthouse for CID: " + cid);
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = () => reject(new Error("Failed to read decrypted blob"));
+    reader.readAsText(decryptedBlob as Blob);
   });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText })) as { error: string };
-    throw new Error(`Download failed: ${err.error}`);
-  }
-  const { data } = await res.json() as { data: string };
-  return Uint8Array.from(atob(data), c => c.charCodeAt(0));
 }
 
 /** Ping the sync endpoints — checks if Lighthouse and ETH key are configured. */
-export async function pingSync(token: string): Promise<{ ok: boolean; hasLighthouseKey: boolean; hasEthKey: boolean }> {
+export async function pingSync(
+  token: string,
+): Promise<{ ok: boolean; hasLighthouseKey: boolean; hasEthKey: boolean }> {
   const res = await fetch(`${API}/sync/ping`, { headers: authHeaders(token) });
   if (!res.ok) return { ok: false, hasLighthouseKey: false, hasEthKey: false };
   return res.json() as Promise<{ ok: boolean; hasLighthouseKey: boolean; hasEthKey: boolean }>;
