@@ -76,8 +76,12 @@ export function KhurkOSBanner() {
   }, []);
 
   // ── Folder bridge — always active when embedded ──────────────────────────────
-  // Hollr picks the folder and sends the FileSystemDirectoryHandle via postMessage.
-  // This replaces the native showDirectoryPicker() call that browsers block in iframes.
+  // Hollr reads the folder on the parent page (where it has permission) and sends
+  // file CONTENTS here via postMessage. Ballpoint lives purely in memory when
+  // embedded; writes are sent back to Hollr via ballpoint:write-file etc.
+  //
+  // Expected message from Hollr:
+  // { type: 'khurk:vault-open', name: string, files: [{name, content, lastModified?}] }
   useEffect(() => {
     if (!isEmbedded()) return;
 
@@ -86,19 +90,19 @@ export function KhurkOSBanner() {
         e.origin === 'https://khurk.services' ||
         e.origin.endsWith('.khurk.services');
       if (!ok) return;
-      if (e.data?.type !== 'khurk:fs-directory') return;
+      if (e.data?.type !== 'khurk:vault-open') return;
 
-      const handle = e.data.handle as FileSystemDirectoryHandle;
-      const name   = e.data.name   as string | undefined;
-      if (!handle) return;
+      const files = e.data.files as { name: string; content: string; lastModified?: number }[];
+      const name  = (e.data.name as string | undefined) ?? 'Vault';
+      if (!Array.isArray(files)) return;
 
-      const { userId, openVaultFromHandle } = useNotesStore.getState();
+      const { userId, openVaultFromProxy } = useNotesStore.getState();
       if (!userId) return; // user must be logged in first
 
-      await openVaultFromHandle(userId, handle);
+      await openVaultFromProxy(userId, name, files);
 
       // Brief confirmation toast
-      setVaultToast(`📁 "${name ?? 'Vault'}" connected`);
+      setVaultToast(`📁 "${name}" — ${files.length} note${files.length !== 1 ? 's' : ''} loaded`);
       setTimeout(() => setVaultToast(null), 4000);
     };
 

@@ -32,9 +32,26 @@ export type SidebarSection =
   | { type: 'tasks-upcoming' }
   | { type: 'tasks-done' };
 
+/** A file entry sent from Hollr via postMessage (proxy vault mode) */
+export type ProxyFile = { name: string; content: string; lastModified?: number };
+
+/** Helper to build a fake file handle used only in proxy mode (never actually called) */
+function fakeHandle(name: string): FileSystemFileHandle {
+  return { name } as unknown as FileSystemFileHandle;
+}
+
+/** Send a postMessage to the parent Hollr window */
+function notifyParent(msg: Record<string, unknown>) {
+  try { window.parent.postMessage(msg, '*'); } catch { /* noop if no parent */ }
+}
+
 interface NotesState {
   userId: number | null;
   vaultHandle: FileSystemDirectoryHandle | null;
+  /** Name of folder when running in Hollr proxy mode (no real FS handles) */
+  proxyVault: string | null;
+  /** In-memory file content store used in proxy mode: filename → content */
+  proxyContent: Record<string, string>;
   /** All notes merged with metadata */
   notes: NoteFile[];
   metadata: MetadataMap;
@@ -55,6 +72,7 @@ interface NotesState {
   reset: () => void;
   openNewVault: (userId: number) => Promise<void>;
   openVaultFromHandle: (userId: number, handle: FileSystemDirectoryHandle) => Promise<void>;
+  openVaultFromProxy: (userId: number, name: string, files: ProxyFile[]) => Promise<void>;
   disconnectVault: (userId: number) => Promise<void>;
   refreshNotes: () => Promise<void>;
 
@@ -165,13 +183,16 @@ async function buildFullTaskIndex(
   userId: number,
   notes: NoteFile[],
   existingTasks: TaskMap,
-  encryptionKey: CryptoKey | null
+  encryptionKey: CryptoKey | null,
+  proxyContent?: Record<string, string>
 ): Promise<TaskMap> {
   let allTasks = { ...existingTasks };
   for (const note of notes) {
     if (note.status !== 'active') continue;
     try {
-      let content = await readNote(note.handle);
+      let content = proxyContent
+        ? (proxyContent[note.id] ?? '')
+        : await readNote(note.handle);
       if (isEncrypted(content)) {
         if (!encryptionKey) continue; // can't parse without key
         content = await decryptContent(content, encryptionKey);
@@ -193,6 +214,8 @@ async function buildFullTaskIndex(
 export const useNotesStore = create<NotesState>((set, get) => ({
   userId: null,
   vaultHandle: null,
+  proxyVault: null,
+  proxyContent: {},
   notes: [],
   metadata: {},
   tasks: {},
@@ -297,16 +320,70 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     }
   },
 
+  openVaultFromProxy: async (userId, name, files) => {
+    set({ isLoading: true });
+    const proxyContent: Record<string, string> = {};
+    const rawFiles = files
+      .filter(f => f.name.endsWith('.md') || f.name.endsWith('.txt'))
+      .map(f => {
+        proxyContent[f.name] = f.content;
+        return {
+          id: f.name,
+          handle: fakeHandle(f.name),
+          name: f.name,
+          title: f.name.replace(/\.(md|txt)$/, ''),
+          lastModified: f.lastModified ?? Date.now(),
+        };
+      });
+    const [meta, existingTasks] = await Promise.all([
+      loadAllMetadata(userId),
+      loadAllTasks(userId),
+    ]);
+    const notes = mergeWithMeta(rawFiles, meta);
+    set({
+      vaultHandle: null,
+      proxyVault: name,
+      proxyContent,
+      notes,
+      metadata: meta,
+      tasks: existingTasks,
+      activeNoteId: null,
+      activeContent: '',
+      isDirty: false,
+      isLoading: false,
+      isVaultEncrypted: false,
+      encryptionKey: null,
+    });
+    const first = notes.find(n => n.status === 'active');
+    if (first) get().selectNote(first.id);
+    buildFullTaskIndex(userId, notes, existingTasks, null, proxyContent)
+      .then(tasks => set({ tasks }))
+      .catch(() => {});
+  },
+
   disconnectVault: async (userId) => {
     await clearVault(userId);
     localStorage.removeItem(activeNoteKey(userId));
-    set({ vaultHandle: null, notes: [], metadata: {}, tasks: {}, activeNoteId: null, activeContent: '', isDirty: false, encryptionKey: null, isVaultEncrypted: false });
+    set({ vaultHandle: null, proxyVault: null, proxyContent: {}, notes: [], metadata: {}, tasks: {}, activeNoteId: null, activeContent: '', isDirty: false, encryptionKey: null, isVaultEncrypted: false });
   },
 
   refreshNotes: async () => {
-    const { vaultHandle, userId, metadata } = get();
-    if (!vaultHandle || !userId) return;
-    const rawFiles = await scanFolder(vaultHandle);
+    const { vaultHandle, proxyVault, proxyContent, metadata } = get();
+    if (proxyVault !== null) {
+      // In proxy mode: re-derive the notes list from in-memory content
+      const rawFiles = Object.keys(proxyContent)
+        .filter(n => n.endsWith('.md') || n.endsWith('.txt'))
+        .map(n => ({
+          id: n,
+          handle: fakeHandle(n),
+          name: n,
+          title: n.replace(/\.(md|txt)$/, ''),
+          lastModified: Date.now(),
+        }));
+      set({ notes: mergeWithMeta(rawFiles, metadata) });
+      return;
+    }
+    const rawFiles = await scanFolder(vaultHandle!);
     const notes = mergeWithMeta(rawFiles, metadata);
     set({ notes });
   },
@@ -316,11 +393,16 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     if (state.isDirty && state.activeNoteId) await state.saveActiveNote();
     const note = state.notes.find(n => n.id === id);
     if (note && state.userId !== null) {
-      let content = await readNote(note.handle);
-      if (isEncrypted(content)) {
-        content = state.encryptionKey
-          ? await decryptContent(content, state.encryptionKey)
-          : '[Encrypted — unlock vault to view]';
+      let content: string;
+      if (state.proxyVault !== null) {
+        content = state.proxyContent[id] ?? '';
+      } else {
+        content = await readNote(note.handle);
+        if (isEncrypted(content)) {
+          content = state.encryptionKey
+            ? await decryptContent(content, state.encryptionKey)
+            : '[Encrypted — unlock vault to view]';
+        }
       }
       localStorage.setItem(activeNoteKey(state.userId), id);
       set({ activeNoteId: id, activeContent: content, isDirty: false });
@@ -332,32 +414,60 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   updateContent: (content) => set({ activeContent: content, isDirty: true }),
 
   saveActiveNote: async () => {
-    const { activeNoteId, vaultHandle, notes, activeContent, encryptionKey, userId } = get();
-    if (!activeNoteId || !vaultHandle || !userId) return;
+    const { activeNoteId, vaultHandle, proxyVault, notes, activeContent, encryptionKey, userId } = get();
+    if (!activeNoteId || !userId) return;
     const note = notes.find(n => n.id === activeNoteId);
-    if (note) {
-      const contentToSave = encryptionKey
-        ? await encryptContent(activeContent, encryptionKey)
-        : activeContent;
-      await saveNote(note.handle, contentToSave);
-      // Snapshot version — encrypted at rest when vault has a key
-      saveVersion(userId, activeNoteId, activeContent, encryptionKey).catch(() => {});
-      set({ isDirty: false });
-      await get().refreshNotes();
+    if (!note) return;
+
+    if (proxyVault !== null) {
+      // Proxy mode: update in-memory store and notify Hollr to write the file
+      set(s => ({ proxyContent: { ...s.proxyContent, [activeNoteId]: activeContent }, isDirty: false }));
+      notifyParent({ type: 'ballpoint:write-file', name: activeNoteId, content: activeContent });
       get().syncNoteTasks(activeNoteId, note.title, activeContent).catch(() => {});
+      return;
     }
+
+    if (!vaultHandle) return;
+    const contentToSave = encryptionKey
+      ? await encryptContent(activeContent, encryptionKey)
+      : activeContent;
+    await saveNote(note.handle, contentToSave);
+    // Snapshot version — encrypted at rest when vault has a key
+    saveVersion(userId, activeNoteId, activeContent, encryptionKey).catch(() => {});
+    set({ isDirty: false });
+    await get().refreshNotes();
+    get().syncNoteTasks(activeNoteId, note.title, activeContent).catch(() => {});
   },
 
   createNewNote: async (title = 'Untitled') => {
-    const { vaultHandle, userId, notes, isDirty, activeNoteId } = get();
-    if (!vaultHandle || !userId) return;
+    const { vaultHandle, proxyVault, userId, notes, isDirty, activeNoteId } = get();
+    if (!userId) return;
     if (isDirty && activeNoteId) await get().saveActiveNote();
+
+    // Guard: need either a real vault or proxy vault
+    if (!vaultHandle && proxyVault === null) return;
 
     let finalTitle = title;
     let i = 1;
     while (notes.some(n => n.title === finalTitle)) finalTitle = `${title} ${i++}`;
 
-    const handle = await createNote(vaultHandle, finalTitle);
+    if (proxyVault !== null) {
+      // Proxy mode: create file in memory, notify Hollr
+      const safe = finalTitle.replace(/[/\\?%*:|"<>]/g, '-');
+      const filename = `${safe}.md`;
+      const meta = await updateNoteMeta(userId, filename, { status: 'active' });
+      set(s => ({
+        proxyContent: { ...s.proxyContent, [filename]: '' },
+        metadata: meta,
+      }));
+      notifyParent({ type: 'ballpoint:create-file', name: filename, content: '' });
+      await get().refreshNotes();
+      await get().selectNote(filename);
+      set({ activeSection: { type: 'all' } });
+      return;
+    }
+
+    const handle = await createNote(vaultHandle!, finalTitle);
     const meta = await updateNoteMeta(userId, handle.name, { status: 'active' });
     set({ metadata: meta });
     await get().refreshNotes();
@@ -366,17 +476,37 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   },
 
   renameNote: async (id, newTitle) => {
-    const { vaultHandle, userId, notes, metadata, activeNoteId } = get();
-    if (!vaultHandle || !userId || !newTitle.trim()) return;
+    const { vaultHandle, proxyVault, userId, notes, metadata, activeNoteId } = get();
+    if (!userId || !newTitle.trim()) return;
+    if (!vaultHandle && proxyVault === null) return;
     const note = notes.find(n => n.id === id);
     if (!note || note.title === newTitle) return;
 
-    const newHandle = await renameNote(vaultHandle, note.handle, newTitle);
+    const safe = newTitle.replace(/[/\\?%*:|"<>]/g, '-');
+    const newName = `${safe}.md`;
+
+    let resolvedNewName: string;
+
+    if (proxyVault !== null) {
+      // Proxy mode: update in-memory content map
+      const currentContent = get().proxyContent[id] ?? '';
+      set(s => {
+        const updated = { ...s.proxyContent };
+        updated[newName] = currentContent;
+        delete updated[id];
+        return { proxyContent: updated };
+      });
+      notifyParent({ type: 'ballpoint:rename-file', oldName: id, newName, content: currentContent });
+      resolvedNewName = newName;
+    } else {
+      const newHandle = await renameNote(vaultHandle!, note.handle, newTitle);
+      resolvedNewName = newHandle.name;
+    }
 
     const oldMeta = metadata[id];
     const newMeta = { ...metadata };
     if (oldMeta) {
-      newMeta[newHandle.name] = oldMeta;
+      newMeta[resolvedNewName] = oldMeta;
       delete newMeta[id];
     }
     await saveAllMetadata(userId, newMeta);
@@ -388,8 +518,8 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const newTasks: TaskMap = {};
     for (const [key, t] of Object.entries(tasks)) {
       if (t.noteId === id) {
-        const newId = key.replace(`${id}::`, `${newHandle.name}::`);
-        newTasks[newId] = { ...t, id: newId, noteId: newHandle.name, noteTitle: newTitle };
+        const newId = key.replace(`${id}::`, `${resolvedNewName}::`);
+        newTasks[newId] = { ...t, id: newId, noteId: resolvedNewName, noteTitle: newTitle };
       } else {
         newTasks[key] = t;
       }
@@ -398,8 +528,8 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     set({ tasks: newTasks });
 
     if (activeNoteId === id && userId) {
-      localStorage.setItem(activeNoteKey(userId), newHandle.name);
-      set({ activeNoteId: newHandle.name });
+      localStorage.setItem(activeNoteKey(userId), resolvedNewName);
+      set({ activeNoteId: resolvedNewName });
     }
   },
 
@@ -432,9 +562,20 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   },
 
   permanentlyDeleteNote: async (id) => {
-    const { vaultHandle, userId, activeNoteId, notes } = get();
-    if (!vaultHandle || !userId) return;
-    await deleteNote(vaultHandle, id);
+    const { vaultHandle, proxyVault, userId, activeNoteId, notes } = get();
+    if (!userId) return;
+    if (!vaultHandle && proxyVault === null) return;
+
+    if (proxyVault !== null) {
+      set(s => {
+        const updated = { ...s.proxyContent };
+        delete updated[id];
+        return { proxyContent: updated };
+      });
+      notifyParent({ type: 'ballpoint:delete-file', name: id });
+    } else {
+      await deleteNote(vaultHandle!, id);
+    }
     const newMeta = await removeNoteMeta(userId, id);
     set({ metadata: newMeta });
 
