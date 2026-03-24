@@ -3,6 +3,7 @@ import { get, set } from 'idb-keyval';
 export type NoteStatus = 'active' | 'archived' | 'trashed';
 export type ReminderStatus = 'pending' | 'fired' | 'dismissed';
 export type AccentColor = 'violet' | 'indigo' | 'blue' | 'cyan' | 'teal' | 'green' | 'amber' | 'orange' | 'rose' | 'pink';
+export type RemoteStatus = 'neverSynced' | 'pendingUpload' | 'synced';
 
 export interface NoteMetadata {
   isFavorite: boolean;
@@ -12,6 +13,7 @@ export interface NoteMetadata {
   reminderTime?: string;
   reminderStatus?: ReminderStatus;
   trashedAt?: number;
+  remoteStatus?: RemoteStatus;
 }
 
 export type MetadataMap = Record<string, NoteMetadata>;

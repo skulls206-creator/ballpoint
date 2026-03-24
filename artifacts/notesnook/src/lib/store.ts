@@ -18,6 +18,9 @@ import {
 } from './crypto';
 import { saveVersion, reencryptVersions } from './versions';
 import { migrateNoteAttachments } from './attachments';
+import { backupNow as _backupNow, restoreFromCid as _restoreFromCid, loadSyncHistory as _loadSyncHistory, SyncRecord } from './syncEngine';
+import { NoteSnapshot, SYNC_ENCRYPTION_MODE } from './syncEncryption';
+import { getWalletInfo } from './lighthouseClient';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -67,6 +70,15 @@ interface NotesState {
   encryptionKey: CryptoKey | null;
   isVaultEncrypted: boolean;
 
+  // Sync (Lighthouse cloud backup)
+  syncStatus: 'idle' | 'uploading' | 'downloading' | 'error';
+  syncError: string | null;
+  lastSyncRecord: SyncRecord | null;
+  syncHistory: SyncRecord[];
+  walletAddress: string | null;
+  hasLighthouseKey: boolean;
+  syncEncryptionMode: string;
+
   // Vault
   init: (userId: number) => Promise<void>;
   reset: () => void;
@@ -105,6 +117,13 @@ interface NotesState {
   toggleTask: (taskId: string) => Promise<void>;
   setTaskDueDate: (taskId: string, dueDate: string | null) => Promise<void>;
   createTaskNote: (text?: string) => Promise<void>;
+
+  // Sync (Lighthouse cloud backup)
+  initSync: (token: string) => Promise<void>;
+  backupNow: (token: string) => Promise<void>;
+  restoreFromCid: (token: string, cid: string) => Promise<void>;
+  loadSyncHistory: () => Promise<void>;
+  markPendingUpload: (noteId: string) => Promise<void>;
 
   // UI
   setActiveSection: (section: SidebarSection) => void;
@@ -229,6 +248,14 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   accentColor: getInitialAccent(),
   encryptionKey: null,
   isVaultEncrypted: false,
+
+  syncStatus: 'idle',
+  syncError: null,
+  lastSyncRecord: null,
+  syncHistory: [],
+  walletAddress: null,
+  hasLighthouseKey: false,
+  syncEncryptionMode: SYNC_ENCRYPTION_MODE,
 
   init: async (userId) => {
     set({ isLoading: true, userId });
@@ -424,6 +451,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       set(s => ({ proxyContent: { ...s.proxyContent, [activeNoteId]: activeContent }, isDirty: false }));
       notifyParent({ type: 'ballpoint:write-file', name: activeNoteId, content: activeContent });
       get().syncNoteTasks(activeNoteId, note.title, activeContent).catch(() => {});
+      get().markPendingUpload(activeNoteId).catch(() => {});
       return;
     }
 
@@ -437,6 +465,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     set({ isDirty: false });
     await get().refreshNotes();
     get().syncNoteTasks(activeNoteId, note.title, activeContent).catch(() => {});
+    get().markPendingUpload(activeNoteId).catch(() => {});
   },
 
   createNewNote: async (title = 'Untitled') => {
@@ -455,7 +484,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       // Proxy mode: create file in memory, notify Hollr
       const safe = finalTitle.replace(/[/\\?%*:|"<>]/g, '-');
       const filename = `${safe}.md`;
-      const meta = await updateNoteMeta(userId, filename, { status: 'active' });
+      const meta = await updateNoteMeta(userId, filename, { status: 'active', remoteStatus: 'pendingUpload' });
       set(s => ({
         proxyContent: { ...s.proxyContent, [filename]: '' },
         metadata: meta,
@@ -468,7 +497,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     }
 
     const handle = await createNote(vaultHandle!, finalTitle);
-    const meta = await updateNoteMeta(userId, handle.name, { status: 'active' });
+    const meta = await updateNoteMeta(userId, handle.name, { status: 'active', remoteStatus: 'pendingUpload' });
     set({ metadata: meta });
     await get().refreshNotes();
     await get().selectNote(handle.name);
@@ -506,7 +535,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const oldMeta = metadata[id];
     const newMeta = { ...metadata };
     if (oldMeta) {
-      newMeta[resolvedNewName] = oldMeta;
+      newMeta[resolvedNewName] = { ...oldMeta, remoteStatus: 'pendingUpload' };
       delete newMeta[id];
     }
     await saveAllMetadata(userId, newMeta);
@@ -802,6 +831,126 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
     await deleteVaultFile(vaultHandle, VAULT_KEY_FILENAME);
     set({ encryptionKey: null, isVaultEncrypted: false });
+  },
+
+  // ── Sync (Lighthouse cloud backup) ───────────────────────────────────────
+
+  initSync: async (token) => {
+    try {
+      const [walletInfo, history] = await Promise.all([
+        getWalletInfo(token),
+        (async () => {
+          const uid = get().userId;
+          return uid ? _loadSyncHistory(uid) : [];
+        })(),
+      ]);
+      set({
+        walletAddress: walletInfo.address,
+        hasLighthouseKey: walletInfo.hasLighthouseKey,
+        syncHistory: history,
+        lastSyncRecord: history[0] ?? null,
+      });
+    } catch {
+      // Sync init is non-fatal — app still works without it
+    }
+  },
+
+  backupNow: async (token) => {
+    const { userId, notes, metadata, encryptionKey } = get();
+    if (!userId) return;
+
+    set({ syncStatus: 'uploading', syncError: null });
+    try {
+      // Serialize active notes as plaintext snapshots for the backup bundle.
+      // If vault is encrypted, content must be read from note files and decrypted first.
+      const activeNotes = notes.filter(n => n.status === 'active');
+      const snapshots: NoteSnapshot[] = [];
+
+      for (const note of activeNotes) {
+        try {
+          let content = '';
+          if (get().proxyVault !== null) {
+            content = get().proxyContent[note.id] ?? '';
+          } else if (get().vaultHandle) {
+            const { readNote: rn } = await import('./fileSystem');
+            const { isEncrypted: ie, decryptContent: dc } = await import('./crypto');
+            const raw = await rn(note.handle);
+            content = (ie(raw) && encryptionKey) ? await dc(raw, encryptionKey) : raw;
+          }
+          snapshots.push({ id: note.id, title: note.title, content, lastModified: note.lastModified });
+        } catch { /* skip unreadable */ }
+      }
+
+      const record = await _backupNow(token, userId, snapshots);
+      set({ syncStatus: 'idle', lastSyncRecord: record, syncHistory: [record, ...get().syncHistory].slice(0, 50) });
+
+      // Mark all active notes as synced
+      const newMeta = { ...metadata };
+      for (const note of activeNotes) {
+        if (newMeta[note.id]) newMeta[note.id] = { ...newMeta[note.id], remoteStatus: 'synced' };
+      }
+      await saveAllMetadata(userId, newMeta);
+      set({ metadata: newMeta });
+      await get().refreshNotes();
+    } catch (err: any) {
+      set({ syncStatus: 'error', syncError: err.message ?? 'Backup failed' });
+    }
+  },
+
+  restoreFromCid: async (token, cid) => {
+    const { userId } = get();
+    if (!userId) return;
+
+    set({ syncStatus: 'downloading', syncError: null });
+    try {
+      const snapshots = await _restoreFromCid(token, userId, cid);
+      // Merge into local store — overwrite notes with same ID, add new ones
+      const { vaultHandle, proxyVault, encryptionKey } = get();
+      if (proxyVault !== null) {
+        // Proxy mode: update in-memory content
+        const updated = { ...get().proxyContent };
+        for (const snap of snapshots) {
+          updated[snap.id] = snap.content;
+          notifyParent({ type: 'ballpoint:write-file', name: snap.id, content: snap.content });
+        }
+        set({ proxyContent: updated });
+      } else if (vaultHandle) {
+        const { saveNote: sn, createNote: cn } = await import('./fileSystem');
+        const { encryptContent: ec } = await import('./crypto');
+        for (const snap of snapshots) {
+          const content = encryptionKey ? await ec(snap.content, encryptionKey) : snap.content;
+          try {
+            const note = get().notes.find(n => n.id === snap.id);
+            if (note) {
+              await sn(note.handle, content);
+            } else {
+              await cn(vaultHandle, snap.title);
+            }
+          } catch { /* skip */ }
+        }
+      }
+      await get().refreshNotes();
+      set({ syncStatus: 'idle' });
+    } catch (err: any) {
+      set({ syncStatus: 'error', syncError: err.message ?? 'Restore failed' });
+    }
+  },
+
+  loadSyncHistory: async () => {
+    const { userId } = get();
+    if (!userId) return;
+    const history = await _loadSyncHistory(userId);
+    set({ syncHistory: history, lastSyncRecord: history[0] ?? null });
+  },
+
+  markPendingUpload: async (noteId) => {
+    const { userId, metadata } = get();
+    if (!userId) return;
+    const current = metadata[noteId]?.remoteStatus;
+    if (current === 'synced' || current === undefined) {
+      const newMeta = await updateNoteMeta(userId, noteId, { remoteStatus: 'pendingUpload' }, { ...metadata });
+      set({ metadata: newMeta });
+    }
   },
 
   // ── UI ────────────────────────────────────────────────────────────────────

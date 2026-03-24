@@ -4,7 +4,7 @@ import {
   Plus, FolderOpen, FolderX, Sun, Moon, Settings, Zap, LogOut, Search,
   Download, CheckCircle2, ListTodo, Clock, Calendar, CheckCheck,
   FilePlus, RotateCcw, Trash, TagIcon,
-  Lock, LockOpen, ShieldCheck, X,
+  Lock, LockOpen, ShieldCheck, X, Cloud,
 } from 'lucide-react';
 import { useNotesStore, SidebarSection } from '../lib/store';
 import { useAuth } from '../lib/authContext';
@@ -12,6 +12,7 @@ import { AccentColor, getAllTags } from '../lib/metadata';
 import { selectTaskCounts } from '../lib/tasks';
 import { usePWAInstall } from '../lib/usePWAInstall';
 import { cn } from '../lib/utils';
+import { SettingsPanel } from './SettingsPanel';
 
 const ACCENT_COLORS: { id: AccentColor; label: string; hsl: string }[] = [
   { id: 'violet', label: 'Violet', hsl: '252 87% 67%' },
@@ -71,6 +72,7 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
 
   const [tagsOpen,        setTagsOpen]        = useState(true);
   const [settingsOpen,    setSettingsOpen]    = useState(false);
+  const [syncPanelOpen,   setSyncPanelOpen]   = useState(false);
   const [showEncryption,  setShowEncryption]  = useState(false);
   const [encPwd,          setEncPwd]          = useState('');
   const [encPwd2,         setEncPwd2]         = useState('');
@@ -204,6 +206,10 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
           <button onClick={toggleTheme} title="Toggle theme"
             className="w-7 h-7 md:w-5 md:h-5 rounded flex items-center justify-center text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors">
             {theme === 'dark' ? <Sun size={13} className="md:w-[11px] md:h-[11px]" /> : <Moon size={13} className="md:w-[11px] md:h-[11px]" />}
+          </button>
+          <button onClick={() => setSyncPanelOpen(true)} title="Cloud Sync"
+            className="w-7 h-7 md:w-5 md:h-5 rounded flex items-center justify-center text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors">
+            <Cloud size={13} className="md:w-[11px] md:h-[11px]" />
           </button>
           <button onClick={() => setSettingsOpen(p => !p)} title="Settings"
             className={cn("w-7 h-7 md:w-5 md:h-5 rounded flex items-center justify-center text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors",
@@ -533,6 +539,9 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
         ))}
       </div>
     )}
+
+    {/* Cloud Sync panel modal */}
+    {syncPanelOpen && <SettingsPanel onClose={() => setSyncPanelOpen(false)} />}
     </>
   );
 }

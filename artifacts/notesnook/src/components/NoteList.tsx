@@ -3,6 +3,7 @@ import { formatDistanceToNow } from 'date-fns';
 import {
   Star, Trash2, Edit2, Archive, RotateCcw,
   Trash, FileText, Bell, Copy, ExternalLink, Menu,
+  Cloud, CloudOff, UploadCloud,
 } from 'lucide-react';
 import { useNotesStore, selectFilteredNotes, isTaskSection } from '../lib/store';
 import { TaskList } from './TaskList';
@@ -138,6 +139,7 @@ export function NoteList({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
   const activeNoteId  = useNotesStore(s => s.activeNoteId);
   const searchQuery   = useNotesStore(s => s.searchQuery);
   const notes         = useNotesStore(s => s.notes);
+  const metadata      = useNotesStore(s => s.metadata);
 
   const selectNote            = useNotesStore(s => s.selectNote);
   const setSearchQuery        = useNotesStore(s => s.setSearchQuery);
@@ -274,6 +276,13 @@ export function NoteList({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
                       {note.title}
                     </span>
                   )}
+                  {/* Cloud sync badge */}
+                  {(() => {
+                    const rs = metadata[note.id]?.remoteStatus;
+                    if (rs === 'synced') return <Cloud size={9} className="shrink-0 text-green-500/70" aria-label="Backed up to cloud" />;
+                    if (rs === 'pendingUpload') return <UploadCloud size={9} className="shrink-0 text-amber-500/70" aria-label="Pending cloud backup" />;
+                    return <CloudOff size={9} className="shrink-0 text-muted-foreground/25" aria-label="Not yet backed up" />;
+                  })()}
                 </div>
 
                 {/* Tags */}
