@@ -19,7 +19,7 @@ import {
 import { saveVersion, reencryptVersions } from './versions';
 import { migrateNoteAttachments } from './attachments';
 import { backupNow as _backupNow, restoreFromCid as _restoreFromCid, loadSyncHistory as _loadSyncHistory, SyncRecord } from './syncEngine';
-import { NoteSnapshot, SYNC_ENCRYPTION_MODE } from './syncEncryption';
+import { NoteSnapshot, SYNC_ENCRYPTION_MODE, getSyncEncryptionMode, setSyncEncryptionMode } from './syncEncryption';
 import { getWalletInfo } from './lighthouseClient';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -124,6 +124,7 @@ interface NotesState {
   restoreFromCid: (token: string, cid: string) => Promise<void>;
   loadSyncHistory: () => Promise<void>;
   markPendingUpload: (noteId: string) => Promise<void>;
+  setDevSyncMode: (mode: 'LIGHTHOUSE' | 'LOCAL_WEBCRYPTO') => void;
 
   // UI
   setActiveSection: (section: SidebarSection) => void;
@@ -924,9 +925,11 @@ export const useNotesStore = create<NotesState>((set, get) => ({
             if (note) {
               await sn(note.handle, content);
             } else {
-              await cn(vaultHandle, snap.title);
+              // Create new note with the snapshot's title, then write its content
+              const newHandle = await cn(vaultHandle, snap.title);
+              await sn(newHandle, content);
             }
-          } catch { /* skip */ }
+          } catch { /* skip unreadable or fs-error notes */ }
         }
       }
       await get().refreshNotes();
@@ -951,6 +954,11 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       const newMeta = await updateNoteMeta(userId, noteId, { remoteStatus: 'pendingUpload' }, { ...metadata });
       set({ metadata: newMeta });
     }
+  },
+
+  setDevSyncMode: (mode) => {
+    setSyncEncryptionMode(mode);
+    set({ syncEncryptionMode: mode });
   },
 
   // ── UI ────────────────────────────────────────────────────────────────────

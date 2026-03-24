@@ -2,11 +2,10 @@ import { useState, useEffect, useCallback } from 'react';
 import {
   Cloud, CloudOff, Upload, Download, RefreshCw, CheckCircle2,
   AlertCircle, Clock, Copy, X, ChevronDown, ChevronRight,
-  Wallet, Shield, ShieldCheck,
+  Wallet, Shield, ShieldCheck, FlaskConical,
 } from 'lucide-react';
 import { useNotesStore } from '../lib/store';
 import { useAuth } from '../lib/authContext';
-import { SYNC_ENCRYPTION_MODE } from '../lib/syncEncryption';
 import { cn } from '../lib/utils';
 import { formatDistanceToNow } from 'date-fns';
 
@@ -24,17 +23,19 @@ function formatBytes(n: number) {
 export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const { token } = useAuth();
 
-  const syncStatus      = useNotesStore(s => s.syncStatus);
-  const syncError       = useNotesStore(s => s.syncError);
-  const lastSyncRecord  = useNotesStore(s => s.lastSyncRecord);
-  const syncHistory     = useNotesStore(s => s.syncHistory);
-  const walletAddress   = useNotesStore(s => s.walletAddress);
-  const hasLighthouseKey = useNotesStore(s => s.hasLighthouseKey);
+  const syncStatus        = useNotesStore(s => s.syncStatus);
+  const syncError         = useNotesStore(s => s.syncError);
+  const lastSyncRecord    = useNotesStore(s => s.lastSyncRecord);
+  const syncHistory       = useNotesStore(s => s.syncHistory);
+  const walletAddress     = useNotesStore(s => s.walletAddress);
+  const hasLighthouseKey  = useNotesStore(s => s.hasLighthouseKey);
+  const syncEncryptionMode = useNotesStore(s => s.syncEncryptionMode);
 
-  const initSync         = useNotesStore(s => s.initSync);
-  const backupNow        = useNotesStore(s => s.backupNow);
-  const restoreFromCid   = useNotesStore(s => s.restoreFromCid);
-  const loadHistory      = useNotesStore(s => s.loadSyncHistory);
+  const initSync        = useNotesStore(s => s.initSync);
+  const backupNow       = useNotesStore(s => s.backupNow);
+  const restoreFromCid  = useNotesStore(s => s.restoreFromCid);
+  const loadHistory     = useNotesStore(s => s.loadSyncHistory);
+  const setDevSyncMode  = useNotesStore(s => s.setDevSyncMode);
 
   const [historyOpen, setHistoryOpen] = useState(false);
   const [copiedCid, setCopiedCid] = useState<string | null>(null);
@@ -87,22 +88,56 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
 
-          {/* Encryption mode badge */}
-          <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-primary/5 border border-primary/20">
-            <ShieldCheck size={13} className="text-primary shrink-0" />
-            <div className="flex-1">
-              <p className="text-[11px] font-medium text-foreground">
-                {SYNC_ENCRYPTION_MODE === 'LIGHTHOUSE'
-                  ? 'Lighthouse mode — AES-256-GCM (ETH wallet key)'
-                  : 'Local WebCrypto — DEV/TESTING ONLY'}
-              </p>
-              <p className="text-[10px] text-muted-foreground">
-                Lighthouse only stores encrypted ciphertext
-              </p>
+          {/* Encryption mode badge + dev toggle */}
+          <div className="space-y-2">
+            <div className={cn(
+              "flex items-center gap-2 px-3 py-2 rounded-lg border",
+              syncEncryptionMode === 'LIGHTHOUSE'
+                ? "bg-primary/5 border-primary/20"
+                : "bg-amber-500/5 border-amber-500/30"
+            )}>
+              {syncEncryptionMode === 'LIGHTHOUSE'
+                ? <ShieldCheck size={13} className="text-primary shrink-0" />
+                : <FlaskConical size={13} className="text-amber-500 shrink-0" />}
+              <div className="flex-1">
+                <p className="text-[11px] font-medium text-foreground">
+                  {syncEncryptionMode === 'LIGHTHOUSE'
+                    ? 'Kavach + Lighthouse — encrypted via ETH wallet'
+                    : 'Local WebCrypto — DEV/TESTING ONLY'}
+                </p>
+                <p className="text-[10px] text-muted-foreground">
+                  {syncEncryptionMode === 'LIGHTHOUSE'
+                    ? 'BLS key shards stored on Kavach nodes'
+                    : 'Local random seed — not wallet-tied, not production-safe'}
+                </p>
+              </div>
+              {syncEncryptionMode !== 'LIGHTHOUSE' && (
+                <span className="text-[9px] font-bold text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded shrink-0">DEV</span>
+              )}
             </div>
-            {SYNC_ENCRYPTION_MODE !== 'LIGHTHOUSE' && (
-              <span className="text-[9px] font-bold text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded">DEV</span>
-            )}
+
+            {/* Dev mode toggle — clearly labeled as dev/testing only */}
+            <div className="flex items-center justify-between px-3 py-2 rounded-lg border border-dashed border-border bg-muted/20">
+              <div className="flex items-center gap-1.5">
+                <FlaskConical size={11} className="text-muted-foreground" />
+                <p className="text-[10px] text-muted-foreground">
+                  Local WebCrypto fallback <span className="text-amber-500 font-semibold">(dev only)</span>
+                </p>
+              </div>
+              <button
+                onClick={() => setDevSyncMode(syncEncryptionMode === 'LOCAL_WEBCRYPTO' ? 'LIGHTHOUSE' : 'LOCAL_WEBCRYPTO')}
+                className={cn(
+                  "relative w-8 h-4 rounded-full transition-colors shrink-0",
+                  syncEncryptionMode === 'LOCAL_WEBCRYPTO' ? "bg-amber-500" : "bg-muted-foreground/20"
+                )}
+                title="Toggle LOCAL_WEBCRYPTO mode for offline testing"
+              >
+                <span className={cn(
+                  "absolute top-0.5 w-3 h-3 rounded-full bg-white shadow transition-transform",
+                  syncEncryptionMode === 'LOCAL_WEBCRYPTO' ? "translate-x-4" : "translate-x-0.5"
+                )} />
+              </button>
+            </div>
           </div>
 
           {/* Wallet info */}

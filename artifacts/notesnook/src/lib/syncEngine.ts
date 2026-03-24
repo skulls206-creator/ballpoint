@@ -31,7 +31,7 @@
 
 import { get, set } from "idb-keyval";
 import {
-  SYNC_ENCRYPTION_MODE,
+  getSyncEncryptionMode,
   serializeNotes,
   deserializeNotes,
   deriveLocalFallbackKey,
@@ -78,7 +78,7 @@ export async function backupNow(
   let walletAddress: string;
   let sizeBytes: number;
 
-  if (SYNC_ENCRYPTION_MODE === "LIGHTHOUSE") {
+  if (getSyncEncryptionMode() === "LIGHTHOUSE") {
     const { address, lighthouseApiKey, hasLighthouseKey } = await getWalletInfo(token);
     if (!hasLighthouseKey) {
       throw new Error("Lighthouse API key is not configured on the server");
@@ -121,7 +121,7 @@ export async function restoreFromCid(
   userId: number,
   cid: string,
 ): Promise<NoteSnapshot[]> {
-  if (SYNC_ENCRYPTION_MODE === "LIGHTHOUSE") {
+  if (getSyncEncryptionMode() === "LIGHTHOUSE") {
     const { address } = await getWalletInfo(token);
     const json = await decryptNotesFromCid(token, address, cid);
     return deserializeNotes(json);

@@ -22,7 +22,34 @@
 
 export type SyncEncryptionMode = "LIGHTHOUSE" | "LOCAL_WEBCRYPTO";
 
-export const SYNC_ENCRYPTION_MODE: SyncEncryptionMode = "LIGHTHOUSE";
+const SYNC_MODE_STORAGE_KEY = "ballpoint-dev-sync-mode";
+
+/** Returns the current sync encryption mode. Defaults to LIGHTHOUSE in production. */
+export function getSyncEncryptionMode(): SyncEncryptionMode {
+  try {
+    const stored = localStorage.getItem(SYNC_MODE_STORAGE_KEY);
+    if (stored === "LOCAL_WEBCRYPTO") return "LOCAL_WEBCRYPTO";
+  } catch { /* ignore */ }
+  return "LIGHTHOUSE";
+}
+
+/** Override the sync encryption mode (LOCAL_WEBCRYPTO for dev/testing). Persisted in localStorage. */
+export function setSyncEncryptionMode(mode: SyncEncryptionMode): void {
+  try {
+    if (mode === "LOCAL_WEBCRYPTO") {
+      localStorage.setItem(SYNC_MODE_STORAGE_KEY, "LOCAL_WEBCRYPTO");
+    } else {
+      localStorage.removeItem(SYNC_MODE_STORAGE_KEY);
+    }
+  } catch { /* ignore */ }
+}
+
+/**
+ * Current sync encryption mode — use getSyncEncryptionMode() for runtime checks.
+ * This constant is set at module load time; changes via setSyncEncryptionMode()
+ * take effect after the next page load or after calling getSyncEncryptionMode().
+ */
+export const SYNC_ENCRYPTION_MODE: SyncEncryptionMode = getSyncEncryptionMode();
 
 // ─── Note snapshot ───────────────────────────────────────────────────────────
 
