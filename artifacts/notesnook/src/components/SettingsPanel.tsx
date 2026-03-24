@@ -73,7 +73,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
       <div className="w-full max-w-2xl bg-card border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
 
         {/* Header */}
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-border shrink-0">
+        <div className="flex items-center gap-3 px-8 py-5 border-b border-border shrink-0">
           <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
             <Cloud size={16} className="text-primary" />
           </div>
@@ -86,7 +86,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+        <div className="flex-1 overflow-y-auto px-8 py-6 space-y-7">
 
           {/* Encryption mode badge + dev toggle */}
           <div className="space-y-2">
@@ -319,7 +319,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* Footer */}
-        <div className="px-5 py-3 border-t border-border shrink-0">
+        <div className="px-8 py-4 border-t border-border shrink-0">
           <p className="text-[10px] text-muted-foreground/50 text-center">
             Notes are encrypted before leaving your device · Private key stays on server
           </p>
