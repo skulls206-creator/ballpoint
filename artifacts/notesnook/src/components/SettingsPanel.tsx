@@ -70,7 +70,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 p-4" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="w-full max-w-2xl bg-card border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="w-[95%] max-w-4xl bg-card border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
 
         {/* Header */}
         <div className="flex items-center gap-3 px-8 py-5 border-b border-border shrink-0">
