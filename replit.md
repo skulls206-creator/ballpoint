@@ -18,12 +18,11 @@
 - Offline-capable service worker (stale-while-revalidate), SW update detection via `sw-update-available` event
 - Favorites/pinning, Trash/Archive, Tags, Reminders (60s scheduler + SW notifications)
 - **Lighthouse IPFS Cloud Backup**: opt-in encrypted backup to Lighthouse IPFS/Filecoin
-  - AES-256-GCM encryption keyed from server-side ETH wallet signature (LIGHTHOUSE mode)
-  - ETH private key (`ETH_PRIVATE_KEY` env) and Lighthouse API key (`LIGHTHOUSE_API_KEY` env) never leave the server
-  - `GET /api/sync/wallet` → wallet address + API key status
-  - `POST /api/sync/sign` → signs any message with server ETH key
-  - `POST /api/sync/upload` → uploads encrypted blob to Lighthouse IPFS, returns CID
-  - `GET /api/sync/download/:cid` → fetches from IPFS gateway, returns ciphertext
+  - Kavach encryption: BLS master key + key shards stored on Kavach nodes (access-controlled by ETH wallet)
+  - Browser uses `@lighthouse-web3/sdk` directly for upload/decrypt; server only signs Kavach auth challenge
+  - ETH private key (`ETH_PRIVATE_KEY` env) never leaves the server; Lighthouse API key returned to browser
+  - `GET /api/sync/wallet` → wallet address + actual Lighthouse API key (browser uses SDK directly)
+  - `POST /api/sync/sign` → signs Kavach challenge message with server ETH key
   - Per-note `remoteStatus`: `neverSynced` | `pendingUpload` | `synced` — shown as cloud badge in note list
   - Storage & Sync settings panel (cloud icon in sidebar) — wallet address, backup now, last backup, version history with per-entry Restore button
 - **KHURK OS proxy vault mode**: `khurk:vault-open` postMessage receives file contents; writes back via `ballpoint:*` postMessages

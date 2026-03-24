@@ -100,7 +100,7 @@ export async function backupNow(
     timestamp: Date.now(),
     noteCount: notes.length,
     walletAddress,
-    encryptionMode: SYNC_ENCRYPTION_MODE,
+    encryptionMode: getSyncEncryptionMode(),
     sizeBytes,
   };
 
