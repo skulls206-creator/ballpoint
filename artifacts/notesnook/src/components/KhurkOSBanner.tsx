@@ -90,18 +90,43 @@ export function KhurkOSBanner() {
         e.origin === 'https://khurk.services' ||
         e.origin.endsWith('.khurk.services');
       if (!ok) return;
-      if (e.data?.type !== 'khurk:vault-open') return;
+
+      const type = e.data?.type as string | undefined;
+
+      // ── Old handle-based message: Hollr needs to be updated ──────────────────
+      if (type === 'khurk:fs-directory') {
+        console.warn('[Ballpoint] Received khurk:fs-directory (old format). Hollr must be updated to send khurk:vault-open with file contents instead of a FileSystemDirectoryHandle.');
+        setVaultToast('⚠️ Hollr needs to be updated — it sent a folder handle instead of file contents. See console for details.');
+        setTimeout(() => setVaultToast(null), 9000);
+        return;
+      }
+
+      // ── Debug: log any other khurk message we don't recognise ────────────────
+      if (type !== 'khurk:vault-open' && type !== 'KHURK_THEME') {
+        console.info('[Ballpoint] Received unknown message from Hollr:', type, e.data);
+        return;
+      }
+
+      if (type !== 'khurk:vault-open') return;
 
       const files = e.data.files as { name: string; content: string; lastModified?: number }[];
       const name  = (e.data.name as string | undefined) ?? 'Vault';
-      if (!Array.isArray(files)) return;
+      if (!Array.isArray(files)) {
+        console.error('[Ballpoint] khurk:vault-open received but "files" is not an array:', e.data);
+        setVaultToast('⚠️ Hollr sent vault-open but no file list. Check your Hollr code.');
+        setTimeout(() => setVaultToast(null), 7000);
+        return;
+      }
 
       const { userId, openVaultFromProxy } = useNotesStore.getState();
-      if (!userId) return; // user must be logged in first
+      if (!userId) {
+        setVaultToast('⚠️ Log in to Ballpoint first, then share the folder from Hollr.');
+        setTimeout(() => setVaultToast(null), 6000);
+        return;
+      }
 
       await openVaultFromProxy(userId, name, files);
 
-      // Brief confirmation toast
       setVaultToast(`📁 "${name}" — ${files.length} note${files.length !== 1 ? 's' : ''} loaded`);
       setTimeout(() => setVaultToast(null), 4000);
     };
