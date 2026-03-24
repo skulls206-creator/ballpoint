@@ -49,6 +49,10 @@ export async function loadVault(userId: number): Promise<FileSystemDirectoryHand
   }
 }
 
+export async function saveVaultHandle(userId: number, handle: FileSystemDirectoryHandle) {
+  await set(vaultKey(userId), handle);
+}
+
 export async function clearVault(userId: number) {
   await del(vaultKey(userId));
 }

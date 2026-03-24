@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X } from 'lucide-react';
+import { X, FolderCheck } from 'lucide-react';
 import { useNotesStore } from '../lib/store';
 import type { AccentColor } from '../lib/metadata';
 
@@ -44,20 +44,21 @@ function isEmbedded(): boolean {
 type KhurkMsg = { type: 'KHURK_THEME'; theme?: 'dark' | 'light'; accent?: string };
 
 export function KhurkOSBanner() {
-  const [show, setShow]         = useState(false);
-  const [pending, setPending]   = useState<KhurkMsg | null>(null);
-  const theme        = useNotesStore(s => s.theme);
-  const toggleTheme  = useNotesStore(s => s.toggleTheme);
-  const setAccent    = useNotesStore(s => s.setAccentColor);
+  const [show, setShow]               = useState(false);
+  const [pending, setPending]         = useState<KhurkMsg | null>(null);
+  const [vaultToast, setVaultToast]   = useState<string | null>(null);
 
+  const theme               = useNotesStore(s => s.theme);
+  const toggleTheme         = useNotesStore(s => s.toggleTheme);
+  const setAccent           = useNotesStore(s => s.setAccentColor);
+
+  // ── Theme banner (shown once per session when embedded) ─────────────────────
   useEffect(() => {
     if (!isEmbedded()) return;
     if (sessionStorage.getItem(SESSION_KEY)) return;
 
-    // Show the banner immediately on iframe detection
     setShow(true);
 
-    // Also listen for a KHURK_THEME postMessage so KHURK OS can push its accent
     const onMessage = (e: MessageEvent) => {
       const ok =
         e.origin === 'https://khurk.services' ||
@@ -74,6 +75,37 @@ export function KhurkOSBanner() {
     return () => window.removeEventListener('message', onMessage);
   }, []);
 
+  // ── Folder bridge — always active when embedded ──────────────────────────────
+  // Hollr picks the folder and sends the FileSystemDirectoryHandle via postMessage.
+  // This replaces the native showDirectoryPicker() call that browsers block in iframes.
+  useEffect(() => {
+    if (!isEmbedded()) return;
+
+    const onFsMessage = async (e: MessageEvent) => {
+      const ok =
+        e.origin === 'https://khurk.services' ||
+        e.origin.endsWith('.khurk.services');
+      if (!ok) return;
+      if (e.data?.type !== 'khurk:fs-directory') return;
+
+      const handle = e.data.handle as FileSystemDirectoryHandle;
+      const name   = e.data.name   as string | undefined;
+      if (!handle) return;
+
+      const { userId, openVaultFromHandle } = useNotesStore.getState();
+      if (!userId) return; // user must be logged in first
+
+      await openVaultFromHandle(userId, handle);
+
+      // Brief confirmation toast
+      setVaultToast(`📁 "${name ?? 'Vault'}" connected`);
+      setTimeout(() => setVaultToast(null), 4000);
+    };
+
+    window.addEventListener('message', onFsMessage);
+    return () => window.removeEventListener('message', onFsMessage);
+  }, []);
+
   const apply = () => {
     // Switch to dark if not already
     if (theme !== 'dark') toggleTheme();
@@ -87,9 +119,20 @@ export function KhurkOSBanner() {
     sessionStorage.setItem(SESSION_KEY, '1');
   };
 
-  if (!show) return null;
-
   return (
+    <>
+    {/* Vault-connected confirmation toast */}
+    {vaultToast && (
+      <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[9999] pointer-events-none animate-in fade-in slide-in-from-bottom-2 duration-300">
+        <div className="pointer-events-auto flex items-center gap-2.5 px-4 py-2.5 rounded-xl bg-card border border-border shadow-xl shadow-black/40 backdrop-blur-sm">
+          <FolderCheck size={15} className="text-green-500 shrink-0" />
+          <span className="text-[13px] font-medium text-foreground">{vaultToast}</span>
+        </div>
+      </div>
+    )}
+
+    {/* KHURK OS theme banner */}
+    {show && (
     <div className="fixed bottom-5 left-1/2 -translate-x-1/2 z-[9999] w-[calc(100%-2rem)] max-w-sm pointer-events-none">
       <div className="pointer-events-auto flex items-start gap-3 px-4 py-3 rounded-2xl bg-card border border-border shadow-2xl shadow-black/50 backdrop-blur-sm">
         {/* Icon */}
@@ -130,5 +173,7 @@ export function KhurkOSBanner() {
         </button>
       </div>
     </div>
+    )}
+    </>
   );
 }

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import {
-  openVault, loadVault, scanFolder, readNote, saveNote,
+  openVault, loadVault, saveVaultHandle, scanFolder, readNote, saveNote,
   createNote, deleteNote, renameNote, clearVault, NoteFile,
   readVaultFile, writeVaultFile, deleteVaultFile,
 } from './fileSystem';
@@ -54,6 +54,7 @@ interface NotesState {
   init: (userId: number) => Promise<void>;
   reset: () => void;
   openNewVault: (userId: number) => Promise<void>;
+  openVaultFromHandle: (userId: number, handle: FileSystemDirectoryHandle) => Promise<void>;
   disconnectVault: (userId: number) => Promise<void>;
   refreshNotes: () => Promise<void>;
 
@@ -251,6 +252,33 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const handle = await openVault(userId);
     if (!handle) return;
     set({ isLoading: true });
+    const [rawFiles, meta, existingTasks, keyFile] = await Promise.all([
+      scanFolder(handle),
+      loadAllMetadata(userId),
+      loadAllTasks(userId),
+      readVaultFile(handle, VAULT_KEY_FILENAME),
+    ]);
+    const notes = mergeWithMeta(rawFiles, meta);
+    const isVaultEncrypted = keyFile !== null;
+    set({ vaultHandle: handle, notes, metadata: meta, tasks: existingTasks, activeNoteId: null, activeContent: '', isDirty: false, isLoading: false, isVaultEncrypted, encryptionKey: null });
+    if (!isVaultEncrypted) {
+      const first = notes.find(n => n.status === 'active');
+      if (first) get().selectNote(first.id);
+      buildFullTaskIndex(userId, notes, existingTasks, null)
+        .then(tasks => set({ tasks }))
+        .catch(() => {});
+    }
+  },
+
+  openVaultFromHandle: async (userId, handle) => {
+    // Best-effort permission request — already granted by the parent in most cases
+    try {
+      const perm = await (handle as any).requestPermission({ mode: 'readwrite' });
+      if (perm !== 'granted') return;
+    } catch { /* parent may have pre-granted; proceed */ }
+
+    set({ isLoading: true });
+    await saveVaultHandle(userId, handle);
     const [rawFiles, meta, existingTasks, keyFile] = await Promise.all([
       scanFolder(handle),
       loadAllMetadata(userId),
