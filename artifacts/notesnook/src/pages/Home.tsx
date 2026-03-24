@@ -90,7 +90,8 @@ export default function Home() {
   const [sidebarOpen,  setSidebarOpen]  = useState(false);
   const [mobileView,   setMobileView]   = useState<'list' | 'editor'>('list');
 
-  // When a note is selected, auto-navigate to the editor on mobile
+  // When a note is selected from the sidebar/command palette (not from NoteList tap),
+  // also switch to editor. NoteList taps call onNoteOpen directly.
   const prevNoteId = useRef(activeNoteId);
   useEffect(() => {
     if (activeNoteId && activeNoteId !== prevNoteId.current) {
@@ -98,6 +99,8 @@ export default function Home() {
     }
     prevNoteId.current = activeNoteId;
   }, [activeNoteId]);
+
+  const handleNoteOpen = useCallback(() => setMobileView('editor'), []);
 
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
@@ -191,7 +194,7 @@ export default function Home() {
         'h-full md:flex md:flex-none',
         mobileView === 'list' ? 'flex flex-1' : 'hidden',
       )}>
-        <NoteList onOpenSidebar={() => setSidebarOpen(true)} />
+        <NoteList onOpenSidebar={() => setSidebarOpen(true)} onNoteOpen={handleNoteOpen} />
       </div>
 
       {/* Editor — full-width on mobile (editor view), flex-1 on desktop */}

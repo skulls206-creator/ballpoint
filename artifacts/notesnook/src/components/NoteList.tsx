@@ -133,7 +133,7 @@ function ContextMenu({
 }
 
 // ─── Note List ────────────────────────────────────────────────────────────────
-export function NoteList({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
+export function NoteList({ onOpenSidebar, onNoteOpen }: { onOpenSidebar?: () => void; onNoteOpen?: () => void }) {
   // All hooks must be called unconditionally (React rules)
   const activeSection = useNotesStore(s => s.activeSection);
   const activeNoteId  = useNotesStore(s => s.activeNoteId);
@@ -155,6 +155,31 @@ export function NoteList({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
   const [renameValue, setRenameValue] = useState('');
   const [ctxMenu, setCtxMenu] = useState<ContextMenuState | null>(null);
   const renameRef = useRef<HTMLInputElement>(null);
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTarget = useRef<string | null>(null);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent, noteId: string) => {
+    longPressTarget.current = noteId;
+    longPressTimer.current = setTimeout(() => {
+      const touch = e.touches[0];
+      setCtxMenu({ noteId, x: touch.clientX, y: touch.clientY });
+      longPressTarget.current = null;
+    }, 500);
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
+
+  const handleTouchMove = useCallback(() => {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current);
+      longPressTimer.current = null;
+    }
+  }, []);
 
   const filteredNotes = useMemo(
     () => isTaskSection(activeSection)
@@ -232,7 +257,7 @@ export function NoteList({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
               {searchQuery ? 'No matching notes' : inTrash ? 'Trash is empty' : inArchive ? 'No archived notes' : 'No notes yet'}
             </p>
             {!searchQuery && !inTrash && !inArchive && (
-              <p className="text-[10px] mt-1 opacity-60">Right-click to see options</p>
+              <p className="text-[10px] mt-1 opacity-60">Tap to open · Hold for options</p>
             )}
           </div>
         ) : (
@@ -243,13 +268,22 @@ export function NoteList({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
             return (
               <div
                 key={note.id}
-                onClick={() => { if (!inTrash && !isRenaming) selectNote(note.id); }}
+                onClick={() => {
+                  if (isRenaming) return;
+                  if (!inTrash) {
+                    selectNote(note.id);
+                    onNoteOpen?.();
+                  }
+                }}
                 onContextMenu={e => handleContextMenu(e, note.id)}
+                onTouchStart={e => handleTouchStart(e, note.id)}
+                onTouchEnd={handleTouchEnd}
+                onTouchMove={handleTouchMove}
                 className={cn(
-                  "group relative px-3 py-3 md:py-2 transition-colors border-b border-border/30 select-none",
+                  "group relative px-3 py-4 md:py-2.5 transition-colors border-b border-border/30 select-none active:bg-accent/80",
                   isActive
                     ? "bg-accent/60 border-l-2 border-l-primary"
-                    : !inTrash ? "hover:bg-muted/50 cursor-pointer" : "cursor-default"
+                    : "hover:bg-muted/50 cursor-pointer"
                 )}
               >
                 {/* Title row */}
