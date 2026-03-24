@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Cloud, CloudOff, Upload, Download, RefreshCw, CheckCircle2,
   AlertCircle, Clock, Copy, X, ChevronDown, ChevronRight,
@@ -68,7 +69,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
 
   const isWorking = syncStatus === 'uploading' || syncStatus === 'downloading';
 
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 p-4" onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div className="w-[95%] max-w-4xl bg-card border border-border rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
 
@@ -325,6 +326,7 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
           </p>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
