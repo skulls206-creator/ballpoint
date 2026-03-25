@@ -1,6 +1,9 @@
 import { Router, type IRouter, type Request, type Response } from "express";
 import { Wallet } from "ethers";
 import { requireAuth } from "./auth";
+import lighthouseDefault from "@lighthouse-web3/sdk";
+// ESM/CJS compat — SDK may export as default or as the object itself
+const lighthouse = (lighthouseDefault as any)?.default ?? lighthouseDefault;
 
 const router: IRouter = Router();
 
@@ -54,6 +57,51 @@ router.post("/sync/sign", requireAuth, async (req: Request, res: Response) => {
     res.json({ signature, address: wallet.address });
   } catch (err: any) {
     res.status(500).json({ error: err.message ?? "Signing error" });
+  }
+});
+
+/**
+ * POST /sync/decrypt
+ * Server-side Lighthouse + Kavach decrypt proxy.
+ * Accepts { cid } and returns the decrypted notes JSON text.
+ *
+ * Why server-side: The browser's Lighthouse SDK calls to Kavach nodes and
+ * the IPFS gateway fail in proxied iframe environments (CORS / network policy).
+ * The server has unrestricted outbound access and holds the ETH private key.
+ *
+ * Flow:
+ *   1. Get Kavach auth challenge from Lighthouse → sign with server ETH key
+ *   2. lighthouse.fetchEncryptionKey(cid, address, sig) → masterKey from Kavach shards
+ *   3. lighthouse.decryptFile(cid, masterKey) → encrypted blob from IPFS → plaintext
+ */
+router.post("/sync/decrypt", requireAuth, async (req: Request, res: Response) => {
+  const { cid } = req.body as { cid?: string };
+  if (!cid || typeof cid !== "string") {
+    res.status(400).json({ error: "cid is required" });
+    return;
+  }
+  try {
+    const wallet = getWallet();
+    const address = wallet.address;
+
+    const authMsgResult = await lighthouse.getAuthMessage(address);
+    const challengeMessage: string = (authMsgResult as any)?.data?.message;
+    if (!challengeMessage) throw new Error("Failed to get Kavach auth message from Lighthouse");
+
+    const signature = await wallet.signMessage(challengeMessage);
+
+    const keyResponse = await lighthouse.fetchEncryptionKey(cid, address, signature);
+    const masterKey: string | undefined = (keyResponse as any)?.data?.key;
+    if (!masterKey) throw new Error("Failed to recover Kavach encryption key for CID: " + cid);
+
+    const decryptedBlob = await lighthouse.decryptFile(cid, masterKey);
+    if (!decryptedBlob) throw new Error("Failed to decrypt file from Lighthouse for CID: " + cid);
+
+    // Blob.text() is available in Node.js 18+
+    const text = await (decryptedBlob as Blob).text();
+    res.json({ text });
+  } catch (err: any) {
+    res.status(502).json({ error: err.message ?? "Decrypt failed" });
   }
 });
 

@@ -166,6 +166,12 @@ importers:
 
   artifacts/api-server:
     dependencies:
+      '@lighthouse-web3/kavach':
+        specifier: ^0.2.1
+        version: 0.2.1
+      '@lighthouse-web3/sdk':
+        specifier: ^0.4.4
+        version: 0.4.4
       '@workspace/api-zod':
         specifier: workspace:*
         version: link:../../lib/api-zod
@@ -175,6 +181,9 @@ importers:
       bcryptjs:
         specifier: ^3.0.3
         version: 3.0.3
+      bls-eth-wasm:
+        specifier: ^1.4.0
+        version: 1.4.0
       cookie-parser:
         specifier: ^1.4.7
         version: 1.4.7

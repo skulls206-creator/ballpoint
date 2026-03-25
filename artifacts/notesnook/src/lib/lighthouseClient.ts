@@ -124,38 +124,33 @@ export async function uploadEncryptedNotes(
 }
 
 /**
- * Restores notes from a Lighthouse CID using Kavach key recovery.
+ * Restores notes from a Lighthouse CID — fully server-side.
  *
- * Flow:
- *   1. Get Kavach auth token (server signs Kavach challenge)
- *   2. lighthouse.fetchEncryptionKey(cid, address, signature)
- *      → Recovers key shards from Kavach nodes
- *      → Reconstructs BLS master key via kavach.recoverKey()
- *   3. lighthouse.decryptFile(cid, masterKey)
- *      → Downloads encrypted file from IPFS gateway
- *      → Decrypts using the recovered master key (PBKDF2 + AES-GCM)
- *   Returns parsed notes array.
+ * The browser cannot call Kavach nodes or the IPFS gateway directly in a
+ * proxied iframe (CORS / network policy). Instead we POST the CID to our own
+ * /sync/decrypt endpoint which:
+ *   1. Gets the Kavach auth challenge and signs it with the server ETH key
+ *   2. Calls lighthouse.fetchEncryptionKey(cid, address, sig) → master key
+ *   3. Calls lighthouse.decryptFile(cid, masterKey) → plaintext JSON
+ * The server returns { text } containing the decrypted notes JSON.
  */
 export async function decryptNotesFromCid(
   jwtToken: string,
-  walletAddress: string,
+  _walletAddress: string,
   cid: string,
 ): Promise<string> {
-  const signedMessage = await getKavachSignedToken(jwtToken, walletAddress);
-
-  const keyResponse = await lighthouse.fetchEncryptionKey(cid, walletAddress, signedMessage);
-  const masterKey: string | undefined = (keyResponse as { data?: { key?: string } })?.data?.key;
-  if (!masterKey) throw new Error("Failed to recover Kavach encryption key for CID: " + cid);
-
-  const decryptedBlob = await lighthouse.decryptFile(cid, masterKey);
-  if (!decryptedBlob) throw new Error("Failed to decrypt file from Lighthouse for CID: " + cid);
-
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(new Error("Failed to read decrypted blob"));
-    reader.readAsText(decryptedBlob as Blob);
+  const res = await fetch(`${API}/sync/decrypt`, {
+    method: "POST",
+    headers: authHeaders(jwtToken),
+    body: JSON.stringify({ cid }),
   });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({})) as { error?: string };
+    throw new Error(body.error ?? `Server decrypt failed: ${res.status}`);
+  }
+  const { text } = await res.json() as { text: string };
+  if (!text) throw new Error("Server returned empty decrypted payload");
+  return text;
 }
 
 /** Ping the sync endpoints — checks if Lighthouse and ETH key are configured. */
