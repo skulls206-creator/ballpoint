@@ -400,7 +400,7 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
             {!isInstalled && canInstall && (
               <button onClick={install}
                 className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors text-[11px] font-semibold border border-primary/20">
-                <Download size={12} /> Install Ballpoint.one
+                <Download size={12} /> Install Ballpoint
               </button>
             )}
             {isInstalled && (
@@ -522,7 +522,7 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
         <div className="px-2 pb-2 pt-1 border-t border-sidebar-border">
           <button onClick={install}
             className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-md bg-primary/10 text-primary hover:bg-primary/20 transition-colors text-[11px] font-medium">
-            <Download size={11} /> Install Ballpoint.one
+            <Download size={11} /> Install Ballpoint
           </button>
         </div>
       )}
