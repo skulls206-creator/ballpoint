@@ -59,6 +59,7 @@ export default defineConfig({
       "@lighthouse-web3/sdk",
       "@lighthouse-web3/kavach",
       "bls-eth-wasm",
+      "fflate",
     ],
     esbuildOptions: {
       target: "esnext",

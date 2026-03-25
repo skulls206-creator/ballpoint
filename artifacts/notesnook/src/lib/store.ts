@@ -127,6 +127,8 @@ interface NotesState {
   // Sync (Lighthouse cloud backup)
   initSync: (token: string) => Promise<void>;
   backupNow: (token: string) => Promise<void>;
+  previewRestoreFromCid: (token: string, cid: string) => Promise<import('./syncEncryption').NoteSnapshot[]>;
+  restoreSnapshots: (snapshots: import('./syncEncryption').NoteSnapshot[]) => Promise<void>;
   restoreFromCid: (token: string, cid: string) => Promise<void>;
   loadSyncHistory: () => Promise<void>;
   markPendingUpload: (noteId: string) => Promise<void>;
@@ -929,17 +931,25 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     }
   },
 
-  restoreFromCid: async (token, cid) => {
+  previewRestoreFromCid: async (token, cid) => {
     const { userId } = get();
-    if (!userId) return;
-
+    if (!userId) throw new Error('Not signed in');
     set({ syncStatus: 'downloading', syncError: null });
     try {
       const snapshots = await _restoreFromCid(token, userId, cid);
-      // Merge into local store — overwrite notes with same ID, add new ones
-      const { vaultHandle, proxyVault, encryptionKey } = get();
+      set({ syncStatus: 'idle' });
+      return snapshots;
+    } catch (err: any) {
+      set({ syncStatus: 'error', syncError: err.message ?? 'Decrypt failed' });
+      throw err;
+    }
+  },
+
+  restoreSnapshots: async (snapshots) => {
+    const { vaultHandle, proxyVault, encryptionKey } = get();
+    set({ syncStatus: 'downloading', syncError: null });
+    try {
       if (proxyVault !== null) {
-        // Proxy mode: update in-memory content
         const updated = { ...get().proxyContent };
         for (const snap of snapshots) {
           updated[snap.id] = snap.content;
@@ -954,24 +964,34 @@ export const useNotesStore = create<NotesState>((set, get) => ({
           try {
             const note = get().notes.find(n => n.id === snap.id);
             if (note) {
-              // Update content; also rename if title differs
               await sn(note.handle, content);
               if (note.title !== snap.title) {
                 try { await rnote(vaultHandle, note.handle, snap.title); } catch { /* ignore rename errors */ }
               }
             } else {
-              // Create new note with the snapshot's title, then write its content
               const newHandle = await cn(vaultHandle, snap.title);
               await sn(newHandle, content);
             }
           } catch { /* skip unreadable or fs-error notes */ }
         }
+      } else {
+        throw new Error('No vault is open. Open your vault folder first, then restore.');
       }
       await get().refreshNotes();
       set({ syncStatus: 'idle' });
     } catch (err: any) {
       set({ syncStatus: 'error', syncError: err.message ?? 'Restore failed' });
+      throw err;
     }
+  },
+
+  restoreFromCid: async (token, cid) => {
+    const { userId } = get();
+    if (!userId) return;
+    try {
+      const snapshots = await get().previewRestoreFromCid(token, cid);
+      await get().restoreSnapshots(snapshots);
+    } catch { /* errors already set on store */ }
   },
 
   loadSyncHistory: async () => {

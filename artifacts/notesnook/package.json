@@ -80,6 +80,7 @@
     "@lighthouse-web3/sdk": "^0.4.4",
     "bls-eth-wasm": "^1.4.0",
     "dompurify": "^3.3.3",
+    "fflate": "^0.8.2",
     "idb-keyval": "^6.2.2",
     "marked": "^17.0.5",
     "zustand": "^5.0.12"
