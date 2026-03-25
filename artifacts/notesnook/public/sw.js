@@ -1,4 +1,4 @@
-// Ballpoint.one Service Worker — offline-first + notification support
+// Ballpoint Service Worker — offline-first + notification support
 const CACHE_NAME = 'ballpoint-v2';
 const STATIC_ASSETS = [
   '/',

@@ -172,6 +172,9 @@ importers:
       '@lighthouse-web3/sdk':
         specifier: ^0.4.4
         version: 0.4.4
+      '@peculiar/webcrypto':
+        specifier: ^1.5.0
+        version: 1.5.0
       '@workspace/api-zod':
         specifier: workspace:*
         version: link:../../lib/api-zod

@@ -38,7 +38,7 @@ function VaultLockScreen({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
         >
           <Menu size={20} />
         </button>
-        <span className="ml-2 text-sm font-semibold text-foreground">Ballpoint.one</span>
+        <span className="ml-2 text-sm font-semibold text-foreground">Ballpoint</span>
       </div>
       <div className="flex-1 flex items-center justify-center px-4">
         <div className="w-full max-w-xs p-6 rounded-2xl border border-border bg-card shadow-2xl space-y-4">

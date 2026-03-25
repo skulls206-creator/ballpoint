@@ -53,7 +53,7 @@ export function WelcomeScreen({ onOpenSidebar }: { onOpenSidebar?: () => void })
         >
           <Menu size={20} />
         </button>
-        <span className="ml-2 text-sm font-semibold text-foreground">Ballpoint.one</span>
+        <span className="ml-2 text-sm font-semibold text-foreground">Ballpoint</span>
       </div>
 
       <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
