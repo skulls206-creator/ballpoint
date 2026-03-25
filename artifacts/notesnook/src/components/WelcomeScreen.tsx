@@ -66,7 +66,7 @@ export function WelcomeScreen({ onOpenSidebar }: { onOpenSidebar?: () => void })
           {/* Heading */}
           <div className="space-y-1.5">
             <h1 className="text-xl font-bold text-foreground tracking-tight">
-              Local<span className="text-primary">Notes</span>
+              Local<span className="text-primary"> Notes</span>
             </h1>
             <p className="text-sm text-muted-foreground leading-relaxed">
               Select a folder on your computer to store your notes as plain Markdown files.
