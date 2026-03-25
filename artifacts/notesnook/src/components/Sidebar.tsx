@@ -6,7 +6,7 @@ import {
   FilePlus, RotateCcw, Trash, TagIcon,
   Lock, LockOpen, ShieldCheck, X, Cloud,
 } from 'lucide-react';
-import { useNotesStore, SidebarSection } from '../lib/store';
+import { useNotesStore, SidebarSection, STORAGE_LIMIT_BYTES } from '../lib/store';
 import { useAuth } from '../lib/authContext';
 import { AccentColor, getAllTags } from '../lib/metadata';
 import { selectTaskCounts } from '../lib/tasks';
@@ -61,6 +61,8 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
   const disableEncryption     = useNotesStore(s => s.disableEncryption);
   const lockVault             = useNotesStore(s => s.lockVault);
 
+  const noteSizes  = useNotesStore(s => s.noteSizes);
+
   const tags = useMemo(() => getAllTags(metadata, notes), [metadata, notes]);
   const counts = useMemo(() => ({
     all:       notes.filter(n => n.status === 'active').length,
@@ -69,6 +71,7 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
     trash:     notes.filter(n => n.status === 'trashed').length,
   }), [notes]);
   const taskCounts = useMemo(() => selectTaskCounts(tasks), [tasks]);
+  const totalStorageBytes = useMemo(() => Object.values(noteSizes).reduce((a, b) => a + b, 0), [noteSizes]);
 
   const [tagsOpen,        setTagsOpen]        = useState(true);
   const [settingsOpen,    setSettingsOpen]    = useState(false);
@@ -268,6 +271,37 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
                 ))}
               </div>
             </div>
+
+            {/* Storage usage */}
+            {vaultHandle && (
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-[9px] uppercase tracking-widest text-sidebar-foreground/35 font-semibold">Storage</p>
+                  <span className={cn("text-[9px] tabular-nums font-medium",
+                    totalStorageBytes >= STORAGE_LIMIT_BYTES * 0.9 ? "text-destructive" :
+                    totalStorageBytes >= STORAGE_LIMIT_BYTES * 0.7 ? "text-amber-500" :
+                    "text-sidebar-foreground/40")}>
+                    {totalStorageBytes < 1024 * 1024
+                      ? `${(totalStorageBytes / 1024).toFixed(1)} KB`
+                      : `${(totalStorageBytes / (1024 * 1024)).toFixed(1)} MB`} / 100 MB
+                  </span>
+                </div>
+                <div className="w-full h-1.5 rounded-full bg-sidebar-accent overflow-hidden">
+                  <div
+                    className={cn("h-full rounded-full transition-all duration-500",
+                      totalStorageBytes >= STORAGE_LIMIT_BYTES * 0.9 ? "bg-destructive" :
+                      totalStorageBytes >= STORAGE_LIMIT_BYTES * 0.7 ? "bg-amber-500" :
+                      "bg-primary")}
+                    style={{ width: `${Math.min(100, (totalStorageBytes / STORAGE_LIMIT_BYTES) * 100)}%` }}
+                  />
+                </div>
+                {totalStorageBytes >= STORAGE_LIMIT_BYTES * 0.9 && (
+                  <p className="text-[9px] text-destructive mt-1">
+                    {totalStorageBytes >= STORAGE_LIMIT_BYTES ? 'Limit reached — delete notes to create new ones.' : 'Almost full.'}
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Vault */}
             <div>

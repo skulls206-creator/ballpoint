@@ -1,9 +1,10 @@
 import { create } from 'zustand';
 import {
-  openVault, loadVault, saveVaultHandle, scanFolder, readNote, saveNote,
+  openVault, loadVault, saveVaultHandle, scanFolder, scanFolderSizes, readNote, saveNote,
   createNote, deleteNote, renameNote, clearVault, NoteFile,
   readVaultFile, writeVaultFile, deleteVaultFile,
 } from './fileSystem';
+
 import {
   loadAllMetadata, saveAllMetadata, updateNoteMeta, removeNoteMeta,
   getAllTags, MetadataMap, NoteStatus, AccentColor, DEFAULT_META,
@@ -21,6 +22,8 @@ import { migrateNoteAttachments } from './attachments';
 import { backupNow as _backupNow, restoreFromCid as _restoreFromCid, loadSyncHistory as _loadSyncHistory, SyncRecord } from './syncEngine';
 import { NoteSnapshot, SYNC_ENCRYPTION_MODE, getSyncEncryptionMode, setSyncEncryptionMode } from './syncEncryption';
 import { getWalletInfo } from './lighthouseClient';
+
+export const STORAGE_LIMIT_BYTES = 100 * 1024 * 1024; // 100 MB
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -69,6 +72,9 @@ interface NotesState {
   accentColor: AccentColor;
   encryptionKey: CryptoKey | null;
   isVaultEncrypted: boolean;
+
+  /** Per-note file sizes in bytes (keyed by note ID / filename) */
+  noteSizes: Record<string, number>;
 
   // Sync (Lighthouse cloud backup)
   syncStatus: 'idle' | 'uploading' | 'downloading' | 'error';
@@ -249,6 +255,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   accentColor: getInitialAccent(),
   encryptionKey: null,
   isVaultEncrypted: false,
+  noteSizes: {},
 
   syncStatus: 'idle',
   syncError: null,
@@ -273,6 +280,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       const notes = mergeWithMeta(rawFiles, meta);
       const isVaultEncrypted = keyFile !== null;
       set({ vaultHandle: handle, notes, metadata: meta, tasks: existingTasks, isVaultEncrypted, encryptionKey: null, isLoading: false });
+      scanFolderSizes(handle).then(noteSizes => set({ noteSizes })).catch(() => {});
 
       if (!isVaultEncrypted) {
         // Unencrypted vault — open notes normally
@@ -296,7 +304,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   reset: () => set({
     userId: null, vaultHandle: null, notes: [], metadata: {}, tasks: {},
     activeNoteId: null, activeContent: '', isDirty: false, isLoading: false, searchQuery: '',
-    encryptionKey: null, isVaultEncrypted: false,
+    encryptionKey: null, isVaultEncrypted: false, noteSizes: {},
   }),
 
   openNewVault: async (userId) => {
@@ -312,6 +320,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const notes = mergeWithMeta(rawFiles, meta);
     const isVaultEncrypted = keyFile !== null;
     set({ vaultHandle: handle, notes, metadata: meta, tasks: existingTasks, activeNoteId: null, activeContent: '', isDirty: false, isLoading: false, isVaultEncrypted, encryptionKey: null });
+    scanFolderSizes(handle).then(noteSizes => set({ noteSizes })).catch(() => {});
     if (!isVaultEncrypted) {
       const first = notes.find(n => n.status === 'active');
       if (first) get().selectNote(first.id);
@@ -339,6 +348,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const notes = mergeWithMeta(rawFiles, meta);
     const isVaultEncrypted = keyFile !== null;
     set({ vaultHandle: handle, notes, metadata: meta, tasks: existingTasks, activeNoteId: null, activeContent: '', isDirty: false, isLoading: false, isVaultEncrypted, encryptionKey: null });
+    scanFolderSizes(handle).then(noteSizes => set({ noteSizes })).catch(() => {});
     if (!isVaultEncrypted) {
       const first = notes.find(n => n.status === 'active');
       if (first) get().selectNote(first.id);
@@ -351,10 +361,12 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   openVaultFromProxy: async (userId, name, files) => {
     set({ isLoading: true });
     const proxyContent: Record<string, string> = {};
+    const proxyNoteSizes: Record<string, number> = {};
     const rawFiles = files
       .filter(f => f.name.endsWith('.md') || f.name.endsWith('.txt'))
       .map(f => {
         proxyContent[f.name] = f.content;
+        proxyNoteSizes[f.name] = new TextEncoder().encode(f.content).length;
         return {
           id: f.name,
           handle: fakeHandle(f.name),
@@ -381,6 +393,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       isLoading: false,
       isVaultEncrypted: false,
       encryptionKey: null,
+      noteSizes: proxyNoteSizes,
     });
     const first = notes.find(n => n.status === 'active');
     if (first) get().selectNote(first.id);
@@ -392,7 +405,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   disconnectVault: async (userId) => {
     await clearVault(userId);
     localStorage.removeItem(activeNoteKey(userId));
-    set({ vaultHandle: null, proxyVault: null, proxyContent: {}, notes: [], metadata: {}, tasks: {}, activeNoteId: null, activeContent: '', isDirty: false, encryptionKey: null, isVaultEncrypted: false });
+    set({ vaultHandle: null, proxyVault: null, proxyContent: {}, notes: [], metadata: {}, tasks: {}, activeNoteId: null, activeContent: '', isDirty: false, encryptionKey: null, isVaultEncrypted: false, noteSizes: {} });
   },
 
   refreshNotes: async () => {
@@ -433,7 +446,8 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         }
       }
       localStorage.setItem(activeNoteKey(state.userId), id);
-      set({ activeNoteId: id, activeContent: content, isDirty: false });
+      const sizeBytes = new TextEncoder().encode(content).length;
+      set(s => ({ activeNoteId: id, activeContent: content, isDirty: false, noteSizes: { ...s.noteSizes, [id]: sizeBytes } }));
       // Sync tasks in background (don't await so UI is snappy)
       get().syncNoteTasks(id, note.title, content).catch(() => {});
     }
@@ -449,7 +463,8 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
     if (proxyVault !== null) {
       // Proxy mode: update in-memory store and notify Hollr to write the file
-      set(s => ({ proxyContent: { ...s.proxyContent, [activeNoteId]: activeContent }, isDirty: false }));
+      const proxyBytes = new TextEncoder().encode(activeContent).length;
+      set(s => ({ proxyContent: { ...s.proxyContent, [activeNoteId]: activeContent }, isDirty: false, noteSizes: { ...s.noteSizes, [activeNoteId]: proxyBytes } }));
       notifyParent({ type: 'ballpoint:write-file', name: activeNoteId, content: activeContent });
       get().syncNoteTasks(activeNoteId, note.title, activeContent).catch(() => {});
       get().markPendingUpload(activeNoteId).catch(() => {});
@@ -463,19 +478,27 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     await saveNote(note.handle, contentToSave);
     // Snapshot version — encrypted at rest when vault has a key
     saveVersion(userId, activeNoteId, activeContent, encryptionKey).catch(() => {});
-    set({ isDirty: false });
+    const savedBytes = new TextEncoder().encode(activeContent).length;
+    set(s => ({ isDirty: false, noteSizes: { ...s.noteSizes, [activeNoteId]: savedBytes } }));
     await get().refreshNotes();
     get().syncNoteTasks(activeNoteId, note.title, activeContent).catch(() => {});
     get().markPendingUpload(activeNoteId).catch(() => {});
   },
 
   createNewNote: async (title = 'Untitled') => {
-    const { vaultHandle, proxyVault, userId, notes, isDirty, activeNoteId } = get();
+    const { vaultHandle, proxyVault, userId, notes, isDirty, activeNoteId, noteSizes } = get();
     if (!userId) return;
     if (isDirty && activeNoteId) await get().saveActiveNote();
 
     // Guard: need either a real vault or proxy vault
     if (!vaultHandle && proxyVault === null) return;
+
+    // 100 MB storage limit
+    const totalBytes = Object.values(noteSizes).reduce((a, b) => a + b, 0);
+    if (totalBytes >= STORAGE_LIMIT_BYTES) {
+      alert('You have reached the 100 MB storage limit. Please delete some notes to free up space.');
+      return;
+    }
 
     let finalTitle = title;
     let i = 1;
@@ -600,11 +623,18 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       set(s => {
         const updated = { ...s.proxyContent };
         delete updated[id];
-        return { proxyContent: updated };
+        const sizes = { ...s.noteSizes };
+        delete sizes[id];
+        return { proxyContent: updated, noteSizes: sizes };
       });
       notifyParent({ type: 'ballpoint:delete-file', name: id });
     } else {
       await deleteNote(vaultHandle!, id);
+      set(s => {
+        const sizes = { ...s.noteSizes };
+        delete sizes[id];
+        return { noteSizes: sizes };
+      });
     }
     const newMeta = await removeNoteMeta(userId, id);
     set({ metadata: newMeta });

@@ -60,6 +60,20 @@ export async function clearVault(userId: number) {
   await del(vaultKey(userId));
 }
 
+/** Scan a vault directory and return byte sizes keyed by filename. */
+export async function scanFolderSizes(dirHandle: FileSystemDirectoryHandle): Promise<Record<string, number>> {
+  const sizes: Record<string, number> = {};
+  try {
+    for await (const entry of (dirHandle as any).values()) {
+      if (entry.kind === 'file' && (entry.name.endsWith('.md') || entry.name.endsWith('.txt'))) {
+        const file = await entry.getFile();
+        sizes[entry.name] = file.size;
+      }
+    }
+  } catch { /* best-effort */ }
+  return sizes;
+}
+
 export async function scanFolder(dirHandle: FileSystemDirectoryHandle): Promise<Pick<NoteFile, 'id' | 'handle' | 'name' | 'title' | 'lastModified'>[]> {
   const results: Pick<NoteFile, 'id' | 'handle' | 'name' | 'title' | 'lastModified'>[] = [];
   try {
