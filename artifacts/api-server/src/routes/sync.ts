@@ -97,8 +97,27 @@ router.post("/sync/decrypt", requireAuth, async (req: Request, res: Response) =>
     const decryptedBlob = await lighthouse.decryptFile(cid, masterKey);
     if (!decryptedBlob) throw new Error("Failed to decrypt file from Lighthouse for CID: " + cid);
 
-    // Blob.text() is available in Node.js 18+
-    const text = await (decryptedBlob as Blob).text();
+    // lighthouse.decryptFile returns different types depending on the environment:
+    // browser → Blob, Node.js → may be Buffer, Uint8Array, ArrayBuffer, or string.
+    let text: string;
+    const raw = decryptedBlob as unknown;
+    if (typeof raw === "string") {
+      text = raw;
+    } else if (Buffer.isBuffer(raw)) {
+      text = (raw as Buffer).toString("utf8");
+    } else if (raw instanceof Uint8Array) {
+      text = Buffer.from(raw).toString("utf8");
+    } else if (raw instanceof ArrayBuffer) {
+      text = Buffer.from(raw).toString("utf8");
+    } else if (typeof (raw as any).text === "function") {
+      text = await (raw as Blob).text();
+    } else if (typeof (raw as any).arrayBuffer === "function") {
+      const ab = await (raw as Blob).arrayBuffer();
+      text = Buffer.from(ab).toString("utf8");
+    } else {
+      // Last resort: JSON.stringify for debugging, then throw
+      throw new Error(`Unexpected decryptFile return type: ${Object.prototype.toString.call(raw)}`);
+    }
     res.json({ text });
   } catch (err: any) {
     res.status(502).json({ error: err.message ?? "Decrypt failed" });
