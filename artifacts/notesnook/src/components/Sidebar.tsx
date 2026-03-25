@@ -228,175 +228,188 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
 
       {/* Settings Panel */}
       {settingsOpen && (
-        <div className="px-3 py-2.5 border-b border-sidebar-border bg-sidebar space-y-3">
-          {/* Accent colors */}
-          <div>
-            <p className="text-[9px] uppercase tracking-widest text-sidebar-foreground/35 mb-1.5 font-semibold">Theme Color</p>
-            <div className="grid grid-cols-5 gap-1.5">
-              {ACCENT_COLORS.map(c => (
-                <button key={c.id} onClick={() => setAccentColor(c.id)} title={c.label}
-                  style={{ backgroundColor: `hsl(${c.hsl})` }}
-                  className={cn(
-                    "w-6 h-6 rounded-full transition-all flex items-center justify-center",
-                    accentColor === c.id && "ring-2 ring-offset-2 ring-offset-sidebar ring-foreground/60"
-                  )}>
-                  {accentColor === c.id && <CheckCircle2 size={12} className="text-white drop-shadow" />}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Vault */}
-          <div>
-            <p className="text-[9px] uppercase tracking-widest text-sidebar-foreground/35 mb-1 font-semibold">Vault</p>
-            {vaultHandle ? (
-              <div className="space-y-0.5">
-                <button onClick={() => userId && openNewVault(userId)}
-                  className="w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-[11px] text-sidebar-foreground/60 hover:bg-sidebar-accent transition-colors">
-                  <FolderOpen size={10} /> Change folder
-                </button>
-                <button onClick={() => userId && disconnectVault(userId)}
-                  className="w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-[11px] text-destructive/70 hover:bg-destructive/10 transition-colors">
-                  <FolderX size={10} /> Disconnect
-                </button>
-              </div>
-            ) : (
-              <button onClick={() => userId && openNewVault(userId)}
-                className="w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-[11px] text-sidebar-foreground/60 hover:bg-sidebar-accent transition-colors">
-                <FolderOpen size={10} /> Open vault
-              </button>
-            )}
-          </div>
-
-          {/* Encryption */}
-          {vaultHandle && (
-            <div>
-              <p className="text-[9px] uppercase tracking-widest text-sidebar-foreground/35 mb-1 font-semibold">Encryption</p>
-
-              {/* Status row */}
-              <div className="flex items-center gap-1.5 mb-1">
-                {isVaultEncrypted ? (
-                  <>
-                    <ShieldCheck size={10} className="text-green-500 shrink-0" />
-                    <span className="text-[11px] text-sidebar-foreground/60 flex-1">
-                      {encryptionKey ? 'Vault unlocked' : 'Vault locked'}
-                    </span>
-                    {encryptionKey && (
-                      <button onClick={lockVault} title="Lock vault"
-                        className="flex items-center gap-1 px-1 py-0.5 rounded text-[10px] text-sidebar-foreground/50 hover:text-foreground hover:bg-sidebar-accent transition-colors">
-                        <Lock size={9} /> Lock
-                      </button>
-                    )}
-                  </>
-                ) : (
-                  <>
-                    <LockOpen size={10} className="text-sidebar-foreground/40 shrink-0" />
-                    <span className="text-[11px] text-sidebar-foreground/50 flex-1">Not encrypted</span>
-                  </>
-                )}
-              </div>
-
-              {/* Expand/collapse password form */}
-              {encryptionKey && (
-                <button onClick={() => { setShowEncryption(p => !p); setEncPwd(''); setEncPwd2(''); setEncError(''); }}
-                  className="w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-[11px] text-destructive/70 hover:bg-destructive/10 transition-colors">
-                  <LockOpen size={10} /> Disable encryption
-                </button>
-              )}
-              {!isVaultEncrypted && (
-                <button onClick={() => { setShowEncryption(p => !p); setEncPwd(''); setEncPwd2(''); setEncError(''); }}
-                  className="w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-[11px] text-sidebar-foreground/60 hover:bg-sidebar-accent transition-colors">
-                  <Lock size={10} /> Enable encryption
-                </button>
-              )}
-
-              {/* Password form (enable/disable) */}
-              {showEncryption && (
-                <div className="mt-1 space-y-1.5 bg-sidebar-accent/30 rounded-md px-2 py-2">
-                  {!isVaultEncrypted && (
-                    <>
-                      <p className="text-[10px] text-sidebar-foreground/50 leading-snug">
-                        All notes will be encrypted with AES-256-GCM. Choose a strong password — it cannot be recovered.
-                      </p>
-                      <input type="password" value={encPwd} onChange={e => setEncPwd(e.target.value)}
-                        placeholder="Choose password"
-                        className="w-full px-2 py-1 rounded border border-border bg-background text-[11px] outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40" />
-                      <input type="password" value={encPwd2} onChange={e => setEncPwd2(e.target.value)}
-                        placeholder="Confirm password"
-                        className="w-full px-2 py-1 rounded border border-border bg-background text-[11px] outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40" />
-                    </>
-                  )}
-                  {isVaultEncrypted && encryptionKey && (
-                    <p className="text-[10px] text-sidebar-foreground/50 leading-snug">
-                      All notes will be decrypted and the key file removed. Are you sure?
-                    </p>
-                  )}
-                  {encError && <p className="text-[10px] text-destructive">{encError}</p>}
-                  <div className="flex gap-1.5">
-                    <button
-                      disabled={encLoading}
-                      onClick={async () => {
-                        setEncError('');
-                        if (!isVaultEncrypted) {
-                          if (!encPwd) { setEncError('Enter a password.'); return; }
-                          if (encPwd !== encPwd2) { setEncError('Passwords do not match.'); return; }
-                          if (encPwd.length < 8) { setEncError('Use at least 8 characters.'); return; }
-                          setEncLoading(true);
-                          await enableEncryption(encPwd);
-                          setEncLoading(false);
-                        } else {
-                          setEncLoading(true);
-                          await disableEncryption();
-                          setEncLoading(false);
-                        }
-                        setShowEncryption(false);
-                        setEncPwd(''); setEncPwd2('');
-                      }}
-                      className="flex-1 py-1 rounded text-[10px] font-medium bg-primary text-primary-foreground disabled:opacity-50 hover:bg-primary/90 transition-colors">
-                      {encLoading ? '…' : isVaultEncrypted ? 'Decrypt & disable' : 'Encrypt vault'}
-                    </button>
-                    <button onClick={() => { setShowEncryption(false); setEncPwd(''); setEncPwd2(''); setEncError(''); }}
-                      className="px-2 py-1 rounded text-[10px] text-sidebar-foreground/50 hover:bg-sidebar-accent transition-colors">
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Install PWA */}
-          {!isInstalled && canInstall && (
-            <div>
-              <p className="text-[9px] uppercase tracking-widest text-sidebar-foreground/35 mb-1 font-semibold">App</p>
-              <button onClick={install}
-                className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded-md bg-primary/10 text-primary hover:bg-primary/20 transition-colors text-[11px] font-medium">
-                <Download size={11} /> Install App
-              </button>
-            </div>
-          )}
-          {isInstalled && (
-            <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground/60">
-              <CheckCircle2 size={10} className="text-green-500" /> Installed as desktop app
-            </div>
-          )}
-
-          {/* Account */}
+        <div className="border-b border-sidebar-border bg-sidebar overflow-y-auto max-h-[60vh]">
+          {/* Account card — top */}
           {user && (
-            <div>
-              <p className="text-[9px] uppercase tracking-widest text-sidebar-foreground/35 mb-1 font-semibold">Account</p>
-              <div className="flex items-center gap-1.5 mb-1">
-                <div className="w-4 h-4 rounded-full bg-primary/20 text-primary flex items-center justify-center text-[9px] font-bold uppercase shrink-0">
+            <div className="mx-3 mt-3 mb-2 rounded-xl overflow-hidden border border-sidebar-border/60">
+              <div className="bg-gradient-to-br from-primary/20 via-primary/10 to-transparent px-3 py-2.5 flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-[13px] font-bold uppercase shrink-0 shadow-sm">
                   {user.email[0]}
                 </div>
-                <span className="text-[11px] text-sidebar-foreground/70 truncate flex-1">{user.email}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12px] font-semibold text-sidebar-foreground truncate">{user.email}</p>
+                  <p className="text-[10px] text-sidebar-foreground/50">Personal account</p>
+                </div>
               </div>
               <button onClick={logout}
-                className="w-full flex items-center gap-1.5 px-1.5 py-1 rounded text-[11px] text-destructive/70 hover:bg-destructive/10 transition-colors">
-                <LogOut size={10} /> Sign out
+                className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-destructive/80 hover:bg-destructive/8 hover:text-destructive transition-colors border-t border-sidebar-border/40">
+                <LogOut size={11} /> Sign out
               </button>
             </div>
           )}
+
+          <div className="px-3 pb-3 space-y-3">
+
+            {/* Theme color */}
+            <div>
+              <p className="text-[9px] uppercase tracking-widest text-sidebar-foreground/35 mb-2 font-semibold">Accent Color</p>
+              <div className="flex flex-wrap gap-1.5">
+                {ACCENT_COLORS.map(c => (
+                  <button key={c.id} onClick={() => setAccentColor(c.id)} title={c.label}
+                    style={{ backgroundColor: `hsl(${c.hsl})` }}
+                    className={cn(
+                      "w-5 h-5 rounded-full transition-all flex items-center justify-center shadow-sm",
+                      accentColor === c.id
+                        ? "ring-2 ring-offset-1 ring-offset-sidebar scale-110"
+                        : "opacity-70 hover:opacity-100 hover:scale-105"
+                    )}>
+                    {accentColor === c.id && <CheckCircle2 size={10} className="text-white drop-shadow" />}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Vault */}
+            <div>
+              <p className="text-[9px] uppercase tracking-widest text-sidebar-foreground/35 mb-1.5 font-semibold">Vault</p>
+              <div className="rounded-lg border border-sidebar-border/60 overflow-hidden">
+                {vaultHandle ? (
+                  <>
+                    <button onClick={() => userId && openNewVault(userId)}
+                      className="w-full flex items-center gap-2 px-2.5 py-2 text-[11px] text-sidebar-foreground/70 hover:bg-sidebar-accent transition-colors">
+                      <FolderOpen size={11} className="text-primary/60" /> Change folder
+                    </button>
+                    <div className="h-px bg-sidebar-border/40 mx-2" />
+                    <button onClick={() => userId && disconnectVault(userId)}
+                      className="w-full flex items-center gap-2 px-2.5 py-2 text-[11px] text-destructive/70 hover:bg-destructive/8 transition-colors">
+                      <FolderX size={11} /> Disconnect
+                    </button>
+                  </>
+                ) : (
+                  <button onClick={() => userId && openNewVault(userId)}
+                    className="w-full flex items-center gap-2 px-2.5 py-2 text-[11px] text-sidebar-foreground/70 hover:bg-sidebar-accent transition-colors">
+                    <FolderOpen size={11} className="text-primary/60" /> Open vault
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Encryption */}
+            {vaultHandle && (
+              <div>
+                <p className="text-[9px] uppercase tracking-widest text-sidebar-foreground/35 mb-1.5 font-semibold">Encryption</p>
+                <div className="rounded-lg border border-sidebar-border/60 overflow-hidden">
+                  {/* Status row */}
+                  <div className="flex items-center gap-2 px-2.5 py-2">
+                    {isVaultEncrypted ? (
+                      <>
+                        <div className="w-5 h-5 rounded-full bg-green-500/15 flex items-center justify-center shrink-0">
+                          <ShieldCheck size={10} className="text-green-500" />
+                        </div>
+                        <span className="text-[11px] text-sidebar-foreground/70 flex-1">
+                          {encryptionKey ? 'Unlocked' : 'Locked'}
+                        </span>
+                        {encryptionKey && (
+                          <button onClick={lockVault}
+                            className="flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-sidebar-accent text-[9px] font-medium text-sidebar-foreground/60 hover:text-foreground transition-colors">
+                            <Lock size={8} /> Lock
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        <div className="w-5 h-5 rounded-full bg-sidebar-accent flex items-center justify-center shrink-0">
+                          <LockOpen size={10} className="text-sidebar-foreground/40" />
+                        </div>
+                        <span className="text-[11px] text-sidebar-foreground/50 flex-1">Not encrypted</span>
+                      </>
+                    )}
+                  </div>
+
+                  {(encryptionKey || !isVaultEncrypted) && <div className="h-px bg-sidebar-border/40 mx-2" />}
+                  {encryptionKey && (
+                    <button onClick={() => { setShowEncryption(p => !p); setEncPwd(''); setEncPwd2(''); setEncError(''); }}
+                      className="w-full flex items-center gap-2 px-2.5 py-2 text-[11px] text-destructive/70 hover:bg-destructive/8 transition-colors">
+                      <LockOpen size={11} /> Disable encryption
+                    </button>
+                  )}
+                  {!isVaultEncrypted && (
+                    <button onClick={() => { setShowEncryption(p => !p); setEncPwd(''); setEncPwd2(''); setEncError(''); }}
+                      className="w-full flex items-center gap-2 px-2.5 py-2 text-[11px] text-sidebar-foreground/70 hover:bg-sidebar-accent transition-colors">
+                      <Lock size={11} className="text-primary/60" /> Enable encryption
+                    </button>
+                  )}
+
+                  {/* Password form */}
+                  {showEncryption && (
+                    <div className="mx-2 mb-2 mt-1 space-y-1.5 bg-sidebar-accent/40 rounded-md px-2.5 py-2.5">
+                      {!isVaultEncrypted && (
+                        <>
+                          <p className="text-[10px] text-sidebar-foreground/50 leading-snug">
+                            AES-256-GCM encryption. Choose a strong password — it cannot be recovered.
+                          </p>
+                          <input type="password" value={encPwd} onChange={e => setEncPwd(e.target.value)}
+                            placeholder="New password"
+                            className="w-full px-2 py-1.5 rounded-md border border-border/60 bg-background text-[11px] outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40" />
+                          <input type="password" value={encPwd2} onChange={e => setEncPwd2(e.target.value)}
+                            placeholder="Confirm password"
+                            className="w-full px-2 py-1.5 rounded-md border border-border/60 bg-background text-[11px] outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40" />
+                        </>
+                      )}
+                      {isVaultEncrypted && encryptionKey && (
+                        <p className="text-[10px] text-sidebar-foreground/50 leading-snug">
+                          All notes will be decrypted and the key file removed.
+                        </p>
+                      )}
+                      {encError && <p className="text-[10px] text-destructive">{encError}</p>}
+                      <div className="flex gap-1.5 pt-0.5">
+                        <button
+                          disabled={encLoading}
+                          onClick={async () => {
+                            setEncError('');
+                            if (!isVaultEncrypted) {
+                              if (!encPwd) { setEncError('Enter a password.'); return; }
+                              if (encPwd !== encPwd2) { setEncError('Passwords do not match.'); return; }
+                              if (encPwd.length < 8) { setEncError('Use at least 8 characters.'); return; }
+                              setEncLoading(true);
+                              await enableEncryption(encPwd);
+                              setEncLoading(false);
+                            } else {
+                              setEncLoading(true);
+                              await disableEncryption();
+                              setEncLoading(false);
+                            }
+                            setShowEncryption(false);
+                            setEncPwd(''); setEncPwd2('');
+                          }}
+                          className="flex-1 py-1.5 rounded-md text-[10px] font-semibold bg-primary text-primary-foreground disabled:opacity-50 hover:bg-primary/90 transition-colors">
+                          {encLoading ? '…' : isVaultEncrypted ? 'Decrypt & disable' : 'Encrypt vault'}
+                        </button>
+                        <button onClick={() => { setShowEncryption(false); setEncPwd(''); setEncPwd2(''); setEncError(''); }}
+                          className="px-2.5 py-1.5 rounded-md text-[10px] text-sidebar-foreground/50 hover:bg-sidebar-accent transition-colors">
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Install PWA */}
+            {!isInstalled && canInstall && (
+              <button onClick={install}
+                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors text-[11px] font-semibold border border-primary/20">
+                <Download size={12} /> Install Ballpoint.one
+              </button>
+            )}
+            {isInstalled && (
+              <div className="flex items-center gap-1.5 px-2 py-1.5 rounded-lg bg-green-500/8 border border-green-500/20 text-[10px] text-green-600 dark:text-green-400">
+                <CheckCircle2 size={11} /> Installed as desktop app
+              </div>
+            )}
+
+          </div>
         </div>
       )}
 
