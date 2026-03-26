@@ -1,0 +1,96 @@
+ADDITIONAL REQUIREMENT: USE LIGHTHOUSE ENCRYPTION BY DEFAULT
+
+You already have my Lighthouse API key and my Ethereum private key in the environment/config.
+You previously suggested using Lighthouse’s built‑in encryption and said it was “out of scope”.
+It is now in scope and mandatory.
+
+Update the Ballpoint implementation as follows:
+
+1. Use Lighthouse’s encryption/access control as the default
+Integrate Lighthouse’s encryption / access‑control SDK (Kavach) so that:
+
+When notes are synced, they are encrypted using Lighthouse’s encryption flow, not only raw AES with my own WebCrypto helper.
+
+Access to decrypt is tied to my Ethereum wallet/private key (or derived public address), so only I can decrypt the data.
+
+The previous client‑side WebCrypto functions can remain as helpers, but the primary production path for sync must be:
+
+notes → serialize → encrypt via Lighthouse encryption SDK using my wallet/key → upload via Lighthouse → get CID.
+
+Be explicit in code which path is default:
+
+Add a clear config flag like SYNC_ENCRYPTION_MODE = "LIGHTHOUSE" as the default.
+
+If you need to keep a "LOCAL_WEBCRYPTO" mode for testing, that must be secondary and opt‑in.
+
+2. Concrete behavior using my Ethereum key
+Use my Ethereum private key only to:
+
+Authenticate/sign with Lighthouse as required.
+
+Participate in their encryption/access‑control key management (e.g., key sharding, policy enforcement).
+
+Do NOT log or expose the private key anywhere; treat it as a secret.
+
+Bind encryption/decryption access to my wallet address so that:
+
+Any device where I control the wallet (or derived keys) can decrypt my notes.
+
+Lighthouse and IPFS/Filecoin only ever see encrypted content.
+
+3. Update the sync engine to call Lighthouse’s encryption APIs
+Where you previously had:
+
+encryptNotesForSync(notes, key) with WebCrypto, and then
+
+uploadEncryptedBlob → CID
+
+Change this to:
+
+Serialize notes to a JSON/binary payload.
+
+Call the Lighthouse encryption SDK (Kavach or current recommended library) to:
+
+Encrypt the payload using my wallet and an access condition that grants me full access.
+
+Produce an encrypted file/blob ready to upload.
+
+Upload that encrypted file with Lighthouse’s recommended upload method.
+
+Store the resulting CID + any extra metadata (access policy ID, key ID, etc.) in my profile.
+
+On download:
+
+Fetch encrypted blob from Lighthouse by CID.
+
+Use Lighthouse decryption flow with my wallet/private key to:
+
+Retrieve or reconstruct the symmetric key.
+
+Decrypt the blob.
+
+Deserialize back into Note[] and merge into local DB.
+
+Make sure the sync engine’s main code path uses this Lighthouse encryption flow.
+
+4. UX updates for encryption state
+In the “Cloud sync (Lighthouse)” section of the settings:
+
+Show that encryption is enabled by default and managed via Lighthouse.
+
+Display which wallet/address is being used for encryption.
+
+If you keep a fallback “Local WebCrypto only” mode, clearly label it as “advanced/testing only”.
+
+5. Security guarantees
+Never send plaintext notes to Lighthouse or IPFS/Filecoin.
+
+Never log secrets (API keys, private keys, derived keys).
+
+Clearly separate:
+
+Local plaintext notes (in IndexedDB/OPFS).
+
+Encrypted payloads (what Lighthouse sees).
+
+Important: You must actually implement the Lighthouse encryption integration now; do not say it is “out of scope”. Assume access to the official Lighthouse encryption/encryption‑SDK docs and code examples and wire them into the sync engine end‑to‑end.

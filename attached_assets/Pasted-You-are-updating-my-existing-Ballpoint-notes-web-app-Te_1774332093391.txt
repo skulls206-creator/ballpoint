@@ -1,0 +1,264 @@
+You are updating my existing Ballpoint notes web app.
+Tech: React + TypeScript + Vite + Tailwind + Zustand (or similar) + IndexedDB/OPFS for local storage.
+Goal: Turn Ballpoint into a local‑first, end‑to‑end encrypted notes app that:
+
+Still supports local .md files via folder pickers.
+
+Adds encrypted cloud sync using Lighthouse (lighthouse.storage) built on IPFS/Filecoin.
+
+Can be embedded inside another app (Holler Chat) via iframe without breaking any of this.
+
+Follow these instructions very carefully and modify the codebase accordingly.
+
+1. Preserve and formalize the “local first” behavior
+Implement a clear Local First Notes Layer:
+
+Notes are stored in a local DB (IndexedDB/OPFS), not only in memory.
+
+Each note schema should have at least:
+
+id (UUID)
+
+title
+
+content (markdown string)
+
+createdAt
+
+updatedAt
+
+deleted (soft delete flag)
+
+version (increment on each save)
+
+remoteStatus (enum: "neverSynced" | "pendingUpload" | "synced" | "conflict")
+
+Requirements:
+
+On app load, hydrate the app state from local DB.
+
+Edits are always applied locally first and marked pendingUpload.
+
+Nothing breaks if there is no network or no Lighthouse configuration.
+
+2. Add “Local .md Folder Import/Export” (filesystem bridge)
+I want Ballpoint to still be able to work with real .md files on disk, but NOT as the primary live source of truth. Treat it as a bridge.
+
+Add two explicit flows:
+
+2.1 Import from local .md folder
+Add a UI action: “Import notes from folder”.
+
+When clicked, open a directory picker (File System Access API) inside a user gesture:
+
+Use window.showDirectoryPicker() (with proper feature detection).
+
+Walk the directory tree, find .md files, and import them as new notes:
+
+Derive title from filename.
+
+Load file content as markdown string.
+
+Create notes in local DB with remoteStatus: "pendingUpload" so they will later sync to Lighthouse when configured.
+
+If a note already exists for a given file (e.g., based on filename + path), avoid duplicates: mark as an update instead.
+
+2.2 Export notes back to .md folder
+Add UI action: “Export notes to folder”.
+
+Directory picker again (user selects target folder).
+
+For each non‑deleted note:
+
+Write out a .md file (filename based on title + id, safe for filesystem).
+
+Content: markdown only (no encryption; this is an explicit export step).
+
+Make this export manual or clearly user‑triggered; do not try to do constant real‑time sync with the disk.
+
+The browser sandbox must be respected; do not try to reach arbitrary OS paths. All access must go through user‑initiated file/directory pickers.
+
+3. Integrate Lighthouse (lighthouse.storage) for encrypted sync
+Use Lighthouse as the encrypted sync/backup layer on top of IPFS/Filecoin.
+
+I prefer to control encryption in the browser and use Lighthouse as a dumb encrypted blob store, but design the code so we could later swap to Lighthouse’s Kavach/encryption SDK if needed.
+
+3.1 Configure Lighthouse client
+Add configuration for Lighthouse:
+
+LIGHTHOUSE_API_KEY (env/secret).
+
+A type for LighthouseConfig (apiKey, endpoint URLs, etc.).
+
+Add a small module lighthouseClient.ts that wraps:
+
+uploadEncryptedBlob(blob: Blob | ArrayBuffer): Promise<string>
+→ returns CID string.
+
+downloadEncryptedBlob(cid: string): Promise<ArrayBuffer>
+
+Use their documented REST API or JS SDK to:
+
+Upload: lighthouse.uploadEncrypted() or equivalent low‑level file upload API, pinned to IPFS + Filecoin.
+
+Download: via Lighthouse gateway by CID.
+
+(You may stub credentials but wire the interfaces correctly.)
+
+3.2 Encryption model (client‑side WebCrypto)
+Implement end‑to‑end encryption with WebCrypto:
+
+Use AES‑GCM for note bundle encryption.
+
+Derive or generate a sync key K per user:
+
+For now, assume a single “master sync key” stored locally (e.g., in IndexedDB + optional export/import).
+
+Implement helper functions:
+
+ts
+type EncryptedPayload = {
+  version: number;
+  iv: string; // base64
+  ciphertext: string; // base64
+};
+
+async function encryptNotesForSync(notes: Note[], key: CryptoKey): Promise<EncryptedPayload> { ... }
+
+async function decryptNotesFromSync(payload: EncryptedPayload, key: CryptoKey): Promise<Note[]> { ... }
+notes should be serialized as JSON, then encrypted.
+
+NEVER send plaintext notes to Lighthouse; only EncryptedPayload.
+
+3.3 Sync protocol
+Implement a minimal but robust sync loop:
+
+Data stored in your own app’s backend or local profile for each user:
+
+lastSyncedCid: string | null
+
+Optional history: list of past CIDs.
+
+When user chooses to “Enable cloud sync with Lighthouse”:
+
+Save a Lighthouse API key or token for that user (assume we have a backend to store that securely, or keep it in local storage for now).
+
+Sync actions:
+
+Upload (push)
+
+Collect all notes where remoteStatus === "pendingUpload" or recently updated.
+
+Bundle entire current note set (or just changed ones) into an array.
+
+Encrypt with encryptNotesForSync.
+
+Upload encrypted blob to Lighthouse → get CID.
+
+Save CID as lastSyncedCid (in your backend or user profile).
+
+Mark notes as synced.
+
+Download (pull)
+
+On app load or “Sync now”:
+
+Fetch lastSyncedCid from backend/profile.
+
+If CID exists, download encrypted blob from Lighthouse.
+
+Decrypt using decryptNotesFromSync and merge into local DB:
+
+For conflicts (note changed both locally and remotely since last sync), mark remoteStatus: "conflict" and keep both versions or pick the latest by timestamp.
+
+Provide a visible “Sync status” indicator (last sync time, error, etc.).
+
+All of this must work inside an iframe (i.e., no assumptions about being top‑level window).
+
+4. Make sure everything works when Ballpoint is embedded in an iframe (Holler Chat)
+Assume Ballpoint will often run inside an iframe hosted by a different origin (Holler Chat app).
+
+Requirements:
+
+Do NOT rely on access to window.parent for core functionality.
+
+All file pickers (local folder import/export) must still work from inside the iframe, triggered by user clicks inside Ballpoint.
+
+All Lighthouse calls must be fully functional even when in an iframe.
+
+Optionally support a postMessage channel for:
+
+Receiving a user auth token or Lighthouse token from parent.
+
+Notifying parent (Holler) when a note is opened/changed.
+
+But the note encryption, Lighthouse syncing, and local file bridge must work even without any parent communication.
+
+5. UX adjustments
+Add/adjust UI to expose these new capabilities:
+
+A clear “Storage & Sync” settings page with:
+
+Section “Local storage”:
+
+Show location (IndexedDB/OPFS).
+
+Button “Clear local cache” (with warning).
+
+Section “Local files (.md)”:
+
+“Import from folder” button.
+
+“Export to folder” button.
+
+Section “Cloud sync (Lighthouse)”:
+
+Inputs for Lighthouse API key / token or connection status.
+
+“Sync now” button.
+
+“Last synced” timestamp + status (OK, error).
+
+Show per‑note status in a subtle way (icon for “pending sync” vs “synced”).
+
+6. Code quality & constraints
+Do not strip or break existing basic note‑taking features (editing, listing, search).
+
+Use TypeScript types for all new entities: Note, SyncStatus, EncryptedPayload, LighthouseConfig, etc.
+
+Avoid unsafe any’s; keep types tight.
+
+Wrap File System Access API usage with feature detection and fallbacks (e.g., disable folder import/export on unsupported browsers).
+
+Make the encryption and Lighthouse integration modular so it can be unit‑tested or swapped later.
+
+7. Deliverables
+Update the repo with:
+
+New/updated modules:
+
+storage/localDb.ts (IndexedDB/OPFS adapter)
+
+storage/filesystemBridge.ts (import/export .md via directory picker)
+
+storage/encryption.ts (WebCrypto helpers)
+
+storage/lighthouseClient.ts (Lighthouse upload/download)
+
+storage/syncEngine.ts (or similar; orchestrates local <-> Lighthouse syncing)
+
+UI updates:
+
+Settings panel for “Storage & Sync”.
+
+Buttons and status indicators as described.
+
+Example code snippets in comments where necessary to show how to:
+
+Trigger imports/exports.
+
+Trigger manual sync.
+
+Retrieve sync status.
+
+Do not just describe what you would do; actually write the concrete React + TS code, hooks, and modules needed to make this work end‑to‑end.

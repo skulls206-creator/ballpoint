@@ -1,0 +1,19 @@
+packages:
+  "framer-motion": "For smooth UI animations and page transitions"
+  "marked": "For parsing markdown content"
+  "dompurify": "For sanitizing parsed markdown to prevent XSS"
+  "@types/dompurify": "Types for dompurify"
+  "idb-keyval": "For storing the FileSystemDirectoryHandle in IndexedDB across reloads"
+  "date-fns": "For formatting dates nicely"
+  "zustand": "For elegant, minimal global state management without boilerplate"
+  "@tailwindcss/typography": "For styling the markdown preview beautifully"
+
+images:
+  - path: "artifacts/notesnook/public/images/hero-bg.png"
+    description: "Abstract gradient mesh background in deep indigo, violet, and slate with soft light leaks and a minimal geometric texture, 8k resolution, highly polished"
+    aspect_ratio: "16:9"
+
+notes:
+  - This app relies entirely on the local File System Access API.
+  - No backend server is required or assumed.
+  - State is persisted to localStorage and IndexedDB.

@@ -1,0 +1,524 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+@plugin "@tailwindcss/typography";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-card-border: hsl(var(--card-border));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-popover-border: hsl(var(--popover-border));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-primary-border: var(--primary-border);
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-secondary-border: var(--secondary-border);
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-muted-border: var(--muted-border);
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-accent-border: var(--accent-border);
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-destructive-border: var(--destructive-border);
+  --color-chart-1: hsl(var(--chart-1));
+  --color-chart-2: hsl(var(--chart-2));
+  --color-chart-3: hsl(var(--chart-3));
+  --color-chart-4: hsl(var(--chart-4));
+  --color-chart-5: hsl(var(--chart-5));
+  --color-sidebar: hsl(var(--sidebar));
+  --color-sidebar-foreground: hsl(var(--sidebar-foreground));
+  --color-sidebar-border: hsl(var(--sidebar-border));
+  --color-sidebar-primary: hsl(var(--sidebar-primary));
+  --color-sidebar-primary-foreground: hsl(var(--sidebar-primary-foreground));
+  --color-sidebar-primary-border: var(--sidebar-primary-border);
+  --color-sidebar-accent: hsl(var(--sidebar-accent));
+  --color-sidebar-accent-foreground: hsl(var(--sidebar-accent-foreground));
+  --color-sidebar-accent-border: var(--sidebar-accent-border);
+  --color-sidebar-ring: hsl(var(--sidebar-ring));
+  --font-sans: var(--app-font-sans);
+  --font-serif: var(--app-font-serif);
+  --font-mono: var(--app-font-mono);
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+/* ═══════════════════════════════════════════════════
+   BASE TOKENS — Light Mode
+═══════════════════════════════════════════════════ */
+:root {
+  --button-outline: rgba(0,0,0,.10);
+  --badge-outline: rgba(0,0,0,.05);
+  --opaque-button-border-intensity: -8;
+  --elevate-1: rgba(0,0,0,.03);
+  --elevate-2: rgba(0,0,0,.08);
+
+  --background: 240 10% 97%;
+  --foreground: 240 10% 10%;
+  --border: 240 8% 88%;
+  --input: 240 8% 84%;
+
+  --card: 0 0% 100%;
+  --card-foreground: 240 10% 10%;
+  --card-border: 240 8% 92%;
+
+  --popover: 0 0% 100%;
+  --popover-foreground: 240 10% 10%;
+  --popover-border: 240 8% 88%;
+
+  --secondary: 240 6% 93%;
+  --secondary-foreground: 240 10% 15%;
+
+  --muted: 240 6% 94%;
+  --muted-foreground: 240 6% 46%;
+
+  --destructive: 0 84% 60%;
+  --destructive-foreground: 0 0% 100%;
+
+  --sidebar: 240 12% 95%;
+  --sidebar-foreground: 240 10% 18%;
+  --sidebar-border: 240 8% 89%;
+
+  --chart-1: 252 87% 67%;
+  --chart-2: 200 75% 55%;
+  --chart-3: 160 65% 45%;
+  --chart-4: 40 90% 58%;
+  --chart-5: 340 75% 60%;
+
+  --app-font-sans: 'Inter', sans-serif;
+  --app-font-serif: Georgia, serif;
+  --app-font-mono: 'JetBrains Mono', 'Fira Code', Menlo, monospace;
+  --radius: .5rem;
+
+  --shadow-2xs: 0 1px 2px rgba(0,0,0,.05);
+  --shadow-xs: 0 1px 3px rgba(0,0,0,.08);
+  --shadow-sm: 0 1px 4px rgba(0,0,0,.08), 0 1px 2px rgba(0,0,0,.05);
+  --shadow: 0 2px 8px rgba(0,0,0,.08), 0 1px 3px rgba(0,0,0,.05);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.10), 0 2px 4px rgba(0,0,0,.06);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.12), 0 4px 8px rgba(0,0,0,.06);
+  --shadow-xl: 0 16px 40px rgba(0,0,0,.14), 0 8px 16px rgba(0,0,0,.06);
+  --shadow-2xl: 0 24px 64px rgba(0,0,0,.16);
+  --tracking-normal: 0em;
+  --spacing: 0.25rem;
+}
+
+/* ═══════════════════════════════════════════════════
+   BASE TOKENS — Dark Mode
+═══════════════════════════════════════════════════ */
+.dark {
+  --button-outline: rgba(255,255,255,.10);
+  --badge-outline: rgba(255,255,255,.05);
+  --opaque-button-border-intensity: 9;
+  --elevate-1: rgba(255,255,255,.04);
+  --elevate-2: rgba(255,255,255,.09);
+
+  --background: 240 10% 8%;
+  --foreground: 240 6% 90%;
+  --border: 240 8% 16%;
+  --input: 240 8% 18%;
+
+  --card: 240 10% 11%;
+  --card-foreground: 240 6% 90%;
+  --card-border: 240 8% 15%;
+
+  --popover: 240 10% 10%;
+  --popover-foreground: 240 6% 90%;
+  --popover-border: 240 8% 16%;
+
+  --secondary: 240 8% 15%;
+  --secondary-foreground: 240 6% 80%;
+
+  --muted: 240 8% 13%;
+  --muted-foreground: 240 6% 50%;
+
+  --destructive: 0 75% 55%;
+  --destructive-foreground: 0 0% 100%;
+
+  --sidebar: 240 12% 6%;
+  --sidebar-foreground: 240 6% 78%;
+  --sidebar-border: 240 8% 14%;
+
+  --shadow-2xs: 0 1px 2px rgba(0,0,0,.30);
+  --shadow-xs: 0 1px 3px rgba(0,0,0,.35);
+  --shadow-sm: 0 1px 4px rgba(0,0,0,.35), 0 1px 2px rgba(0,0,0,.25);
+  --shadow: 0 2px 8px rgba(0,0,0,.38), 0 1px 3px rgba(0,0,0,.25);
+  --shadow-md: 0 4px 12px rgba(0,0,0,.42), 0 2px 4px rgba(0,0,0,.28);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,.46), 0 4px 8px rgba(0,0,0,.28);
+  --shadow-xl: 0 16px 40px rgba(0,0,0,.52), 0 8px 16px rgba(0,0,0,.30);
+  --shadow-2xl: 0 24px 64px rgba(0,0,0,.60);
+}
+
+/* ═══════════════════════════════════════════════════
+   ACCENT COLOR THEMES
+   Each theme overrides --primary and related accent vars.
+   Applied via class on <html>: accent-violet, accent-blue, etc.
+═══════════════════════════════════════════════════ */
+
+/* ── Violet (default) ── */
+:root, .accent-violet {
+  --ring: 252 87% 67%;
+  --primary: 252 87% 67%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 252 60% 93%;
+  --accent-foreground: 252 50% 28%;
+  --sidebar-primary: 252 87% 67%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 252 55% 92%;
+  --sidebar-accent-foreground: 252 50% 28%;
+  --sidebar-ring: 252 87% 67%;
+}
+.dark.accent-violet, .dark .accent-violet {
+  --ring: 252 80% 70%;
+  --primary: 252 80% 70%;
+  --primary-foreground: 252 30% 10%;
+  --accent: 252 30% 18%;
+  --accent-foreground: 252 80% 82%;
+  --sidebar-primary: 252 80% 70%;
+  --sidebar-primary-foreground: 252 30% 10%;
+  --sidebar-accent: 252 28% 16%;
+  --sidebar-accent-foreground: 252 75% 82%;
+  --sidebar-ring: 252 80% 70%;
+}
+
+/* ── Blue ── */
+.accent-blue {
+  --ring: 217 91% 60%;
+  --primary: 217 91% 60%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 217 80% 93%;
+  --accent-foreground: 217 60% 25%;
+  --sidebar-primary: 217 91% 60%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 217 70% 91%;
+  --sidebar-accent-foreground: 217 60% 25%;
+  --sidebar-ring: 217 91% 60%;
+}
+.dark.accent-blue, .dark .accent-blue {
+  --ring: 217 85% 65%;
+  --primary: 217 85% 65%;
+  --primary-foreground: 217 50% 10%;
+  --accent: 217 35% 18%;
+  --accent-foreground: 217 80% 82%;
+  --sidebar-primary: 217 85% 65%;
+  --sidebar-primary-foreground: 217 50% 10%;
+  --sidebar-accent: 217 32% 16%;
+  --sidebar-accent-foreground: 217 75% 82%;
+  --sidebar-ring: 217 85% 65%;
+}
+
+/* ── Teal ── */
+.accent-teal {
+  --ring: 174 72% 42%;
+  --primary: 174 72% 42%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 174 60% 90%;
+  --accent-foreground: 174 60% 20%;
+  --sidebar-primary: 174 72% 42%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 174 55% 89%;
+  --sidebar-accent-foreground: 174 60% 20%;
+  --sidebar-ring: 174 72% 42%;
+}
+.dark.accent-teal, .dark .accent-teal {
+  --ring: 174 65% 50%;
+  --primary: 174 65% 50%;
+  --primary-foreground: 174 60% 8%;
+  --accent: 174 30% 16%;
+  --accent-foreground: 174 65% 78%;
+  --sidebar-primary: 174 65% 50%;
+  --sidebar-primary-foreground: 174 60% 8%;
+  --sidebar-accent: 174 28% 14%;
+  --sidebar-accent-foreground: 174 60% 78%;
+  --sidebar-ring: 174 65% 50%;
+}
+
+/* ── Green ── */
+.accent-green {
+  --ring: 142 71% 42%;
+  --primary: 142 71% 42%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 142 60% 90%;
+  --accent-foreground: 142 60% 20%;
+  --sidebar-primary: 142 71% 42%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 142 55% 89%;
+  --sidebar-accent-foreground: 142 60% 20%;
+  --sidebar-ring: 142 71% 42%;
+}
+.dark.accent-green, .dark .accent-green {
+  --ring: 142 65% 50%;
+  --primary: 142 65% 50%;
+  --primary-foreground: 142 60% 8%;
+  --accent: 142 30% 16%;
+  --accent-foreground: 142 65% 76%;
+  --sidebar-primary: 142 65% 50%;
+  --sidebar-primary-foreground: 142 60% 8%;
+  --sidebar-accent: 142 28% 14%;
+  --sidebar-accent-foreground: 142 60% 76%;
+  --sidebar-ring: 142 65% 50%;
+}
+
+/* ── Rose ── */
+.accent-rose {
+  --ring: 347 87% 60%;
+  --primary: 347 87% 60%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 347 70% 93%;
+  --accent-foreground: 347 60% 25%;
+  --sidebar-primary: 347 87% 60%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 347 65% 91%;
+  --sidebar-accent-foreground: 347 60% 25%;
+  --sidebar-ring: 347 87% 60%;
+}
+.dark.accent-rose, .dark .accent-rose {
+  --ring: 347 80% 65%;
+  --primary: 347 80% 65%;
+  --primary-foreground: 347 50% 10%;
+  --accent: 347 30% 18%;
+  --accent-foreground: 347 80% 82%;
+  --sidebar-primary: 347 80% 65%;
+  --sidebar-primary-foreground: 347 50% 10%;
+  --sidebar-accent: 347 28% 16%;
+  --sidebar-accent-foreground: 347 75% 82%;
+  --sidebar-ring: 347 80% 65%;
+}
+
+/* ── Orange ── */
+.accent-orange {
+  --ring: 24 95% 55%;
+  --primary: 24 95% 55%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 24 80% 92%;
+  --accent-foreground: 24 70% 22%;
+  --sidebar-primary: 24 95% 55%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 24 75% 90%;
+  --sidebar-accent-foreground: 24 70% 22%;
+  --sidebar-ring: 24 95% 55%;
+}
+.dark.accent-orange, .dark .accent-orange {
+  --ring: 24 90% 60%;
+  --primary: 24 90% 60%;
+  --primary-foreground: 24 60% 8%;
+  --accent: 24 35% 16%;
+  --accent-foreground: 24 88% 80%;
+  --sidebar-primary: 24 90% 60%;
+  --sidebar-primary-foreground: 24 60% 8%;
+  --sidebar-accent: 24 32% 14%;
+  --sidebar-accent-foreground: 24 82% 80%;
+  --sidebar-ring: 24 90% 60%;
+}
+
+/* ── Indigo ── */
+.accent-indigo {
+  --ring: 238 75% 62%;
+  --primary: 238 75% 62%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 238 60% 93%;
+  --accent-foreground: 238 55% 25%;
+  --sidebar-primary: 238 75% 62%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 238 55% 91%;
+  --sidebar-accent-foreground: 238 55% 25%;
+  --sidebar-ring: 238 75% 62%;
+}
+.dark.accent-indigo, .dark .accent-indigo {
+  --ring: 238 70% 68%;
+  --primary: 238 70% 68%;
+  --primary-foreground: 238 40% 10%;
+  --accent: 238 30% 18%;
+  --accent-foreground: 238 70% 82%;
+  --sidebar-primary: 238 70% 68%;
+  --sidebar-primary-foreground: 238 40% 10%;
+  --sidebar-accent: 238 28% 16%;
+  --sidebar-accent-foreground: 238 65% 80%;
+  --sidebar-ring: 238 70% 68%;
+}
+
+/* ── Cyan ── */
+.accent-cyan {
+  --ring: 188 78% 46%;
+  --primary: 188 78% 46%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 188 65% 90%;
+  --accent-foreground: 188 65% 18%;
+  --sidebar-primary: 188 78% 46%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 188 60% 89%;
+  --sidebar-accent-foreground: 188 65% 18%;
+  --sidebar-ring: 188 78% 46%;
+}
+.dark.accent-cyan, .dark .accent-cyan {
+  --ring: 188 72% 54%;
+  --primary: 188 72% 54%;
+  --primary-foreground: 188 60% 8%;
+  --accent: 188 30% 16%;
+  --accent-foreground: 188 70% 76%;
+  --sidebar-primary: 188 72% 54%;
+  --sidebar-primary-foreground: 188 60% 8%;
+  --sidebar-accent: 188 28% 14%;
+  --sidebar-accent-foreground: 188 65% 76%;
+  --sidebar-ring: 188 72% 54%;
+}
+
+/* ── Amber ── */
+.accent-amber {
+  --ring: 38 90% 50%;
+  --primary: 38 90% 50%;
+  --primary-foreground: 38 60% 8%;
+  --accent: 38 80% 92%;
+  --accent-foreground: 38 70% 20%;
+  --sidebar-primary: 38 90% 50%;
+  --sidebar-primary-foreground: 38 60% 8%;
+  --sidebar-accent: 38 75% 90%;
+  --sidebar-accent-foreground: 38 70% 20%;
+  --sidebar-ring: 38 90% 50%;
+}
+.dark.accent-amber, .dark .accent-amber {
+  --ring: 38 88% 58%;
+  --primary: 38 88% 58%;
+  --primary-foreground: 38 60% 8%;
+  --accent: 38 35% 16%;
+  --accent-foreground: 38 85% 78%;
+  --sidebar-primary: 38 88% 58%;
+  --sidebar-primary-foreground: 38 60% 8%;
+  --sidebar-accent: 38 32% 14%;
+  --sidebar-accent-foreground: 38 82% 78%;
+  --sidebar-ring: 38 88% 58%;
+}
+
+/* ── Pink ── */
+.accent-pink {
+  --ring: 315 85% 60%;
+  --primary: 315 85% 60%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 315 70% 93%;
+  --accent-foreground: 315 60% 25%;
+  --sidebar-primary: 315 85% 60%;
+  --sidebar-primary-foreground: 0 0% 100%;
+  --sidebar-accent: 315 65% 91%;
+  --sidebar-accent-foreground: 315 60% 25%;
+  --sidebar-ring: 315 85% 60%;
+}
+.dark.accent-pink, .dark .accent-pink {
+  --ring: 315 80% 66%;
+  --primary: 315 80% 66%;
+  --primary-foreground: 315 50% 10%;
+  --accent: 315 30% 18%;
+  --accent-foreground: 315 80% 82%;
+  --sidebar-primary: 315 80% 66%;
+  --sidebar-primary-foreground: 315 50% 10%;
+  --sidebar-accent: 315 28% 16%;
+  --sidebar-accent-foreground: 315 75% 80%;
+  --sidebar-ring: 315 80% 66%;
+}
+
+/* ═══════════════════════════════════════════════════
+   COMPUTED BORDERS (using CSS relative color syntax)
+═══════════════════════════════════════════════════ */
+:root, .accent-violet, .accent-indigo, .accent-blue, .accent-cyan,
+.accent-teal, .accent-green, .accent-amber, .accent-orange, .accent-rose, .accent-pink {
+  --sidebar-primary-border: hsl(var(--sidebar-primary));
+  --sidebar-primary-border: hsl(from hsl(var(--sidebar-primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --sidebar-accent-border: hsl(var(--sidebar-accent));
+  --sidebar-accent-border: hsl(from hsl(var(--sidebar-accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --primary-border: hsl(var(--primary));
+  --primary-border: hsl(from hsl(var(--primary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --secondary-border: hsl(var(--secondary));
+  --secondary-border: hsl(from hsl(var(--secondary)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --muted-border: hsl(var(--muted));
+  --muted-border: hsl(from hsl(var(--muted)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --accent-border: hsl(var(--accent));
+  --accent-border: hsl(from hsl(var(--accent)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+  --destructive-border: hsl(var(--destructive));
+  --destructive-border: hsl(from hsl(var(--destructive)) h s calc(l + var(--opaque-button-border-intensity)) / alpha);
+}
+
+/* ═══════════════════════════════════════════════════
+   BASE STYLES
+═══════════════════════════════════════════════════ */
+@layer base {
+  * { @apply border-border; }
+  body { @apply font-sans antialiased bg-background text-foreground text-sm; }
+}
+
+/* ═══════════════════════════════════════════════════
+   UTILITIES
+═══════════════════════════════════════════════════ */
+@layer utilities {
+  input[type="search"]::-webkit-search-cancel-button { @apply hidden; }
+  [contenteditable][data-placeholder]:empty::before {
+    content: attr(data-placeholder);
+    color: hsl(var(--muted-foreground));
+    pointer-events: none;
+  }
+  .no-default-hover-elevate {}
+  .no-default-active-elevate {}
+
+  .toggle-elevate::before, .toggle-elevate-2::before {
+    content: ""; pointer-events: none; position: absolute; inset: 0;
+    border-radius: inherit; z-index: -1;
+  }
+  .toggle-elevate.toggle-elevated::before { background-color: var(--elevate-2); }
+  .border.toggle-elevate::before { inset: -1px; }
+
+  .hover-elevate:not(.no-default-hover-elevate),
+  .active-elevate:not(.no-default-active-elevate),
+  .hover-elevate-2:not(.no-default-hover-elevate),
+  .active-elevate-2:not(.no-default-active-elevate) { position: relative; z-index: 0; }
+
+  .hover-elevate:not(.no-default-hover-elevate)::after,
+  .active-elevate:not(.no-default-active-elevate)::after,
+  .hover-elevate-2:not(.no-default-hover-elevate)::after,
+  .active-elevate-2:not(.no-default-active-elevate)::after {
+    content: ""; pointer-events: none; position: absolute; inset: 0;
+    border-radius: inherit; z-index: 999;
+  }
+  .hover-elevate:hover:not(.no-default-hover-elevate)::after,
+  .active-elevate:active:not(.no-default-active-elevate)::after { background-color: var(--elevate-1); }
+  .hover-elevate-2:hover:not(.no-default-hover-elevate)::after,
+  .active-elevate-2:active:not(.no-default-active-elevate)::after { background-color: var(--elevate-2); }
+  .border.hover-elevate:not(.no-hover-interaction-elevate)::after,
+  .border.active-elevate:not(.no-active-interaction-elevate)::after,
+  .border.hover-elevate-2:not(.no-hover-interaction-elevate)::after,
+  .border.active-elevate-2:not(.no-active-interaction-elevate)::after { inset: -1px; }
+
+  /* Thin scrollbars */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { @apply bg-border/60 rounded-full; }
+  ::-webkit-scrollbar-thumb:hover { @apply bg-muted-foreground/40; }
+
+  /* Prose theming for markdown preview */
+  .prose {
+    --tw-prose-body: hsl(var(--foreground));
+    --tw-prose-headings: hsl(var(--foreground));
+    --tw-prose-lead: hsl(var(--muted-foreground));
+    --tw-prose-links: hsl(var(--primary));
+    --tw-prose-bold: hsl(var(--foreground));
+    --tw-prose-counters: hsl(var(--muted-foreground));
+    --tw-prose-bullets: hsl(var(--muted-foreground));
+    --tw-prose-hr: hsl(var(--border));
+    --tw-prose-quotes: hsl(var(--foreground));
+    --tw-prose-quote-borders: hsl(var(--primary));
+    --tw-prose-captions: hsl(var(--muted-foreground));
+    --tw-prose-code: hsl(var(--foreground));
+    --tw-prose-pre-code: hsl(var(--foreground));
+    --tw-prose-pre-bg: hsl(var(--muted));
+    --tw-prose-th-borders: hsl(var(--border));
+    --tw-prose-td-borders: hsl(var(--border));
+  }
+}

@@ -1,0 +1,26 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "pABmdZisx2sN4Tt5YzuAI"
+uri = "file://artifacts/notesnook/public/favicon.svg"
+type = "image"
+title = "favicon.svg (original vector, any size)"
+
+[[outputs]]
+id = "2MCK00BgXCfdAGQHuxip9"
+uri = "file://artifacts/notesnook/public/favicon-export/favicon-512.png"
+type = "image"
+title = "favicon-512.png (512×512 — app icons, social)"
+
+[[outputs]]
+id = "TV4KtRDgeNQcXSKvJQ-Jy"
+uri = "file://artifacts/notesnook/public/favicon-export/favicon-192.png"
+type = "image"
+title = "favicon-192.png (192×192 — PWA / Android)"
+
+[[outputs]]
+id = "bWMGR-EsAdyBY-088Jgte"
+uri = "file://artifacts/notesnook/public/favicon-export/favicon-32.png"
+type = "image"
+title = "favicon-32.png (32×32 — browser tab)"
