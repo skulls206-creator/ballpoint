@@ -1,5 +1,10 @@
 uploads = []
-generated = []
+
+[[generated]]
+id = "-rkiXdtc9JG2WK3Nqnu_O"
+uri = "file://artifacts/notesnook/public/images/ballpoint-icon.png"
+type = "image"
+title = "ballpoint crystal gem pen app icon"
 
 [[outputs]]
 id = "pABmdZisx2sN4Tt5YzuAI"
