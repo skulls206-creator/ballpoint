@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import {
   FileText, Star, Archive, Trash2, Tag, ChevronDown, ChevronRight,
-  Plus, FolderOpen, FolderX, Sun, Moon, Settings, Zap, LogOut, Search,
+  Plus, FolderOpen, FolderX, Sun, Moon, Settings, LogOut, Search,
   Download, CheckCircle2, ListTodo, Clock, Calendar, CheckCheck,
   FilePlus, RotateCcw, Trash, TagIcon,
   Lock, LockOpen, ShieldCheck, X, Cloud,
@@ -201,8 +201,8 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
     <aside className="w-72 md:w-[200px] shrink-0 flex flex-col h-full bg-sidebar border-r border-sidebar-border select-none overflow-hidden">
       {/* Branding */}
       <div className="flex items-center gap-1.5 px-3 py-2.5 border-b border-sidebar-border">
-        <div className="w-5 h-5 rounded-md bg-primary/15 flex items-center justify-center shrink-0">
-          <Zap size={10} className="text-primary" />
+        <div className="w-5 h-5 rounded-md overflow-hidden shrink-0">
+          <img src="/images/icon-192.png" alt="Ballpoint" className="w-full h-full object-cover" />
         </div>
         <span className="font-semibold text-[12px] tracking-tight text-sidebar-foreground">Ballpoint</span>
         <div className="ml-auto flex items-center gap-0.5">

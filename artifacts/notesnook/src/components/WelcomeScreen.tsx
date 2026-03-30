@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { FolderOpen, HardDrive, Shield, Zap, Lock, Menu, AlertCircle, Loader2, ExternalLink } from 'lucide-react';
+import { FolderOpen, HardDrive, Shield, Lock, Menu, AlertCircle, Loader2, ExternalLink, WifiOff } from 'lucide-react';
 import { useNotesStore } from '../lib/store';
 import { useAuth } from '../lib/authContext';
 import { isFileSystemSupported } from '../lib/fileSystem';
@@ -59,8 +59,8 @@ export function WelcomeScreen({ onOpenSidebar }: { onOpenSidebar?: () => void })
       <div className="flex-1 flex flex-col items-center justify-center px-6 py-12">
         <div className="max-w-sm w-full text-center space-y-6">
           {/* Icon */}
-          <div className="inline-flex items-center justify-center w-12 h-12 rounded-xl bg-primary/10 text-primary ring-1 ring-primary/20">
-            <Zap size={22} strokeWidth={1.5} />
+          <div className="inline-flex items-center justify-center">
+            <img src="/images/icon-192.png" alt="Ballpoint" className="w-16 h-16 rounded-2xl shadow-md" />
           </div>
 
           {/* Heading */}
@@ -171,7 +171,7 @@ export function WelcomeScreen({ onOpenSidebar }: { onOpenSidebar?: () => void })
             {[
               { icon: <HardDrive size={13} />, label: '100% Local', desc: '.md files on disk' },
               { icon: <Lock size={13} />,      label: 'Private',    desc: 'No cloud sync'    },
-              { icon: <Zap size={13} />,       label: 'Offline',    desc: 'Works everywhere' },
+              { icon: <WifiOff size={13} />,    label: 'Offline',    desc: 'Works everywhere' },
             ].map(f => (
               <div key={f.label} className="flex flex-col items-center gap-1 p-3 rounded-lg bg-muted/40 border border-border/40">
                 <span className="text-primary">{f.icon}</span>

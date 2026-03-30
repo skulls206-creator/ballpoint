@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Zap, Mail, Lock, LogIn, UserPlus, Eye, EyeOff, ArrowRight, AlertTriangle } from "lucide-react";
+import { Mail, Lock, LogIn, UserPlus, Eye, EyeOff, ArrowRight, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,8 +38,8 @@ export default function AuthPage({ onAuth, error, loading }: AuthPageProps) {
       >
         {/* Logo */}
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center p-3.5 rounded-2xl bg-primary/10 text-primary mb-4 ring-1 ring-primary/20">
-            <Zap className="w-8 h-8" strokeWidth={1.5} />
+          <div className="inline-flex items-center justify-center mb-4">
+            <img src="/images/icon-192.png" alt="Ballpoint" className="w-20 h-20 rounded-2xl shadow-lg" />
           </div>
           <h1 className="text-2xl font-bold text-foreground">
             Ballpoint

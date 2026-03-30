@@ -1,9 +1,13 @@
 // Ballpoint Service Worker — offline-first + notification support
-const CACHE_NAME = 'ballpoint-v2';
+const CACHE_NAME = 'ballpoint-v3';
 const STATIC_ASSETS = [
   '/',
   '/manifest.webmanifest',
   '/favicon.svg',
+  '/favicon-32.png',
+  '/images/icon-192.png',
+  '/images/icon-512.png',
+  '/images/apple-touch-icon.png',
 ];
 
 // ── Install: cache app shell ──────────────────────────────────────────────────
