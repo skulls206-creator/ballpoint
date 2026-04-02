@@ -269,6 +269,64 @@ async function buildFullTaskIndex(
   return allTasks;
 }
 
+// ─── R2 background sync ────────────────────────────────────────────────────────
+
+/** Module-level cleanup handle for online listener + periodic flush timer. */
+let _r2SyncCleanup: (() => void) | null = null;
+
+/**
+ * Wire up an 'online' event listener and a 60-second periodic timer that both
+ * flush the R2 queue. Replaces any previous listener set. Returns the cleanup
+ * function (cancel timer + remove listener).
+ */
+function startR2BackgroundSync(userId: number, getToken: () => string | null): () => void {
+  // Cancel any previous sync listeners before installing new ones.
+  _r2SyncCleanup?.();
+
+  const flush = () => {
+    const token = getToken();
+    if (!token) return;
+    flushR2Queue(userId, token).catch(() => {});
+  };
+
+  window.addEventListener('online', flush);
+  const timer = setInterval(flush, 60_000);
+
+  const cleanup = () => {
+    window.removeEventListener('online', flush);
+    clearInterval(timer);
+  };
+  _r2SyncCleanup = cleanup;
+  return cleanup;
+}
+
+/** Stop background R2 sync (call on disconnect / disable). */
+function stopR2BackgroundSync(): void {
+  _r2SyncCleanup?.();
+  _r2SyncCleanup = null;
+}
+
+// ─── R2 encryption helpers ────────────────────────────────────────────────────
+
+/**
+ * Encrypt metadata + tasks as JSON then enqueue both as encrypted blobs.
+ * The encryption key is the vault's AES-256-GCM key so the server never sees
+ * plaintext metadata. Flush is triggered by the caller.
+ */
+async function enqueueEncryptedMetaAndTasks(
+  userId: number,
+  encKey: CryptoKey,
+  meta: Record<string, unknown>,
+  tasks: Record<string, unknown>,
+): Promise<void> {
+  const [encMeta, encTasks] = await Promise.all([
+    encryptContent(JSON.stringify(meta), encKey),
+    encryptContent(JSON.stringify(tasks), encKey),
+  ]);
+  await enqueueR2Op(userId, { op: 'put-metadata', key: '.ballpoint-meta', content: encMeta });
+  await enqueueR2Op(userId, { op: 'put-tasks',    key: '.ballpoint-tasks', content: encTasks });
+}
+
 // ─── Store ───────────────────────────────────────────────────────────────────
 
 export const useNotesStore = create<NotesState>((set, get) => ({
@@ -697,10 +755,10 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     await saveAllTasks(userId, newTasks);
     set({ tasks: newTasks });
 
-    // Sync metadata + tasks to R2 if active
-    if ((sm3 === 'r2' || sm3 === 'local+r2') && rt3 && userId) {
-      enqueueR2Op(userId, { op: 'put-metadata', key: '.ballpoint-meta', content: JSON.stringify(newMeta) })
-        .then(() => enqueueR2Op(userId!, { op: 'put-tasks', key: '.ballpoint-tasks', content: JSON.stringify(newTasks) }))
+    // Sync metadata + tasks to R2 (encrypted) if active
+    const { encryptionKey: ek3 } = get();
+    if ((sm3 === 'r2' || sm3 === 'local+r2') && rt3 && ek3 && userId) {
+      enqueueEncryptedMetaAndTasks(userId, ek3, newMeta as Record<string, unknown>, newTasks as Record<string, unknown>)
         .then(() => flushR2Queue(userId!, rt3))
         .catch(() => {});
     }
@@ -724,10 +782,10 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     await saveAllTasks(userId, newTasks);
     set({ tasks: newTasks });
 
-    // Sync metadata + tasks to R2 if active
-    if ((sm6 === 'r2' || sm6 === 'local+r2') && rt6) {
-      enqueueR2Op(userId, { op: 'put-metadata', key: '.ballpoint-meta', content: JSON.stringify(newMeta) })
-        .then(() => enqueueR2Op(userId!, { op: 'put-tasks', key: '.ballpoint-tasks', content: JSON.stringify(newTasks) }))
+    // Sync metadata + tasks to R2 (encrypted) if active
+    const { encryptionKey: ek6 } = get();
+    if ((sm6 === 'r2' || sm6 === 'local+r2') && rt6 && ek6) {
+      enqueueEncryptedMetaAndTasks(userId, ek6, newMeta as Record<string, unknown>, newTasks as Record<string, unknown>)
         .then(() => flushR2Queue(userId!, rt6))
         .catch(() => {});
     }
@@ -788,11 +846,11 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     await saveAllTasks(userId, newTasks);
     set({ tasks: newTasks });
 
-    // Sync tasks (and metadata) to R2 if active
-    if ((sm4 === 'r2' || sm4 === 'local+r2') && rt4 && userId) {
+    // Sync tasks (and metadata) to R2 (encrypted) if active
+    const { encryptionKey: ek4 } = get();
+    if ((sm4 === 'r2' || sm4 === 'local+r2') && rt4 && ek4 && userId) {
       const metaAfter = get().metadata;
-      enqueueR2Op(userId, { op: 'put-metadata', key: '.ballpoint-meta', content: JSON.stringify(metaAfter) })
-        .then(() => enqueueR2Op(userId!, { op: 'put-tasks', key: '.ballpoint-tasks', content: JSON.stringify(newTasks) }))
+      enqueueEncryptedMetaAndTasks(userId, ek4, metaAfter as Record<string, unknown>, newTasks as Record<string, unknown>)
         .then(() => flushR2Queue(userId!, rt4))
         .catch(() => {});
     }
@@ -938,9 +996,10 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const newTasks = { ...tasks, [taskId]: updated };
     await saveAllTasks(userId, newTasks);
     set({ tasks: newTasks });
-    // Sync tasks to R2 if active
-    if ((sm5 === 'r2' || sm5 === 'local+r2') && rt5) {
-      enqueueR2Op(userId, { op: 'put-tasks', key: '.ballpoint-tasks', content: JSON.stringify(newTasks) })
+    // Sync tasks (and metadata) to R2 (encrypted) if active
+    const { encryptionKey: ek5, metadata: meta5 } = get();
+    if ((sm5 === 'r2' || sm5 === 'local+r2') && rt5 && ek5) {
+      enqueueEncryptedMetaAndTasks(userId, ek5, meta5 as Record<string, unknown>, newTasks as Record<string, unknown>)
         .then(() => flushR2Queue(userId!, rt5))
         .catch(() => {});
     }
@@ -1231,16 +1290,27 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         })
       );
 
-      // Merge metadata: R2 cloud takes precedence over local IDB
+      // Merge metadata: R2 cloud takes precedence over local IDB.
+      // Cloud blobs are AES-256-GCM encrypted — decrypt before parsing.
       const localMeta = await loadAllMetadata(userId);
       let cloudMeta: typeof localMeta = {};
-      try { cloudMeta = JSON.parse(cloudMetaJson) as typeof localMeta; } catch { /* use local */ }
+      try {
+        const metaPlain = isEncrypted(cloudMetaJson)
+          ? await decryptContent(cloudMetaJson, key)
+          : cloudMetaJson;
+        cloudMeta = JSON.parse(metaPlain) as typeof localMeta;
+      } catch { /* use local */ }
       const metadata = { ...localMeta, ...cloudMeta };
 
-      // Merge tasks: R2 cloud takes precedence over local IDB
+      // Merge tasks: R2 cloud takes precedence over local IDB.
       const localTasks = await loadAllTasks(userId);
       let cloudTasks: typeof localTasks = {};
-      try { cloudTasks = JSON.parse(cloudTasksJson) as typeof localTasks; } catch { /* use local */ }
+      try {
+        const tasksPlain = isEncrypted(cloudTasksJson)
+          ? await decryptContent(cloudTasksJson, key)
+          : cloudTasksJson;
+        cloudTasks = JSON.parse(tasksPlain) as typeof localTasks;
+      } catch { /* use local */ }
       const existingTasks = { ...localTasks, ...cloudTasks };
 
       const rawFiles = noteList
@@ -1270,6 +1340,9 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       const first = notes.find(n => n.status === 'active');
       if (first) get().selectNote(first.id);
 
+      // Start background sync (online listener + periodic flush)
+      startR2BackgroundSync(userId, () => get().r2Token);
+
       // Flush any pending queue operations (from when we were offline)
       flushR2Queue(userId, token).catch(() => {});
 
@@ -1293,6 +1366,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       const existingTasks = await loadAllTasks(userId);
 
       await initR2Queue(userId);
+      startR2BackgroundSync(userId, () => get().r2Token);
       localStorage.setItem('ballpoint-r2-mode', '1');
 
       set({
@@ -1312,6 +1386,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   },
 
   disconnectR2Vault: async (userId) => {
+    stopR2BackgroundSync();
     localStorage.removeItem('ballpoint-r2-mode');
     localStorage.removeItem('ballpoint-r2-sync');
     localStorage.removeItem(activeNoteKey(userId));
@@ -1346,6 +1421,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       }
 
       await initR2Queue(userId);
+      startR2BackgroundSync(userId, () => get().r2Token);
       localStorage.setItem('ballpoint-r2-sync', '1');
 
       set({
@@ -1374,10 +1450,14 @@ export const useNotesStore = create<NotesState>((set, get) => ({
           })
       );
 
-      // Also queue current metadata + tasks
-      const { metadata, tasks } = get();
-      await enqueueR2Op(userId, { op: 'put-metadata', key: '.ballpoint-meta', content: JSON.stringify(metadata) });
-      await enqueueR2Op(userId, { op: 'put-tasks', key: '.ballpoint-tasks', content: JSON.stringify(tasks) });
+      // Also queue current metadata + tasks (encrypted)
+      const { metadata, tasks: curTasks } = get();
+      await enqueueEncryptedMetaAndTasks(
+        userId,
+        key,
+        metadata as Record<string, unknown>,
+        curTasks as Record<string, unknown>,
+      );
 
       // Start flush
       flushR2Queue(userId, token)
@@ -1393,6 +1473,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   disableR2Sync: async () => {
     const { userId } = get();
     if (!userId) return;
+    stopR2BackgroundSync();
     localStorage.removeItem('ballpoint-r2-sync');
     await clearR2Queue(userId);
     set({

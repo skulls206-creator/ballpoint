@@ -169,9 +169,12 @@ export async function flushR2Queue(
       }
       flushed++;
     } catch {
-      if (entry.retries < MAX_RETRIES) {
-        remaining.push({ ...entry, retries: entry.retries + 1 });
-      } else {
+      // Always keep the entry in the queue — never drop data.
+      // Increment retries so callers can surface "stuck" ops to the user,
+      // but guaranteed eventual delivery once connectivity returns.
+      remaining.push({ ...entry, retries: entry.retries + 1 });
+      if (entry.retries >= MAX_RETRIES) {
+        // Count as "failed this attempt" for status reporting; stays in queue.
         failed++;
       }
     }

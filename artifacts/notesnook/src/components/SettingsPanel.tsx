@@ -66,11 +66,13 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const r2Error            = useNotesStore(s => s.r2Error);
   const r2LastSynced       = useNotesStore(s => s.r2LastSynced);
   const r2PendingCount     = useNotesStore(s => s.r2PendingCount);
+  const r2Configured       = useNotesStore(s => s.r2Configured);
   const storageMode        = useNotesStore(s => s.storageMode);
   const userId             = useNotesStore(s => s.userId);
   const disconnectR2Vault  = useNotesStore(s => s.disconnectR2Vault);
   const syncR2Now          = useNotesStore(s => s.syncR2Now);
   const disableR2Sync      = useNotesStore(s => s.disableR2Sync);
+  const enableR2Sync       = useNotesStore(s => s.enableR2Sync);
 
   const initSync             = useNotesStore(s => s.initSync);
   const backupNow            = useNotesStore(s => s.backupNow);
@@ -82,6 +84,12 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [copiedCid, setCopiedCid] = useState<string | null>(null);
   const [restoreStep, setRestoreStep] = useState<RestoreStep>({ kind: 'idle' });
+
+  // Enable R2 sync form state (for desktop local+r2 mode)
+  const [r2EnablePassword, setR2EnablePassword] = useState('');
+  const [r2EnableLoading, setR2EnableLoading] = useState(false);
+  const [r2EnableError, setR2EnableError] = useState<string | null>(null);
+  const [r2EnableOpen, setR2EnableOpen] = useState(false);
 
   useEffect(() => {
     if (token) {
@@ -131,6 +139,21 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
     setCopiedCid(text);
     setTimeout(() => setCopiedCid(null), 1500);
   };
+
+  const handleEnableR2Sync = useCallback(async () => {
+    if (!token || !r2EnablePassword) return;
+    setR2EnableLoading(true);
+    setR2EnableError(null);
+    try {
+      await enableR2Sync(token, r2EnablePassword);
+      setR2EnablePassword('');
+      setR2EnableOpen(false);
+    } catch (err: unknown) {
+      setR2EnableError((err as Error).message ?? 'Failed to enable cloud backup');
+    } finally {
+      setR2EnableLoading(false);
+    }
+  }, [token, r2EnablePassword, enableR2Sync]);
 
   const isWorking = syncStatus === 'uploading' || syncStatus === 'downloading';
   const isRestoreActive = restoreStep.kind !== 'idle';
@@ -398,6 +421,68 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
                   >
                     <LogOut size={12} /> Disconnect Cloud Vault
                   </button>
+                )}
+              </div>
+            )}
+
+            {/* ── Enable R2 Cloud Backup (desktop local vault, R2 not yet enabled) ── */}
+            {vaultHandle && !r2Mode && r2Configured && (
+              <div className="space-y-2">
+                <h3 className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-widest">
+                  Cloud Storage
+                </h3>
+                {!r2EnableOpen ? (
+                  <button
+                    onClick={() => { setR2EnableOpen(true); setR2EnableError(null); }}
+                    className="w-full flex items-center gap-2 px-3 py-2.5 rounded-lg border border-dashed border-border hover:border-primary/40 hover:bg-primary/5 transition-colors text-left"
+                  >
+                    <CloudUpload size={13} className="text-muted-foreground shrink-0" />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11.5px] font-medium text-foreground">Enable Cloud Backup (R2)</p>
+                      <p className="text-[10px] text-muted-foreground">Sync notes to Cloudflare R2 — encrypted client-side</p>
+                    </div>
+                  </button>
+                ) : (
+                  <div className="rounded-lg border border-border overflow-hidden divide-y divide-border">
+                    <div className="px-3 py-2.5 space-y-2">
+                      <p className="text-[11px] font-medium text-foreground">Set a cloud vault password</p>
+                      <p className="text-[10px] text-muted-foreground">
+                        This password encrypts your notes before upload. You'll need it to access your vault from another device.
+                      </p>
+                      <input
+                        type="password"
+                        value={r2EnablePassword}
+                        onChange={e => setR2EnablePassword(e.target.value)}
+                        onKeyDown={e => e.key === 'Enter' && handleEnableR2Sync()}
+                        placeholder="Cloud vault password"
+                        className="w-full px-2.5 py-1.5 text-[11.5px] bg-muted/50 border border-border rounded-md focus:outline-none focus:ring-1 focus:ring-primary"
+                      />
+                      {r2EnableError && (
+                        <p className="text-[10px] text-destructive">{r2EnableError}</p>
+                      )}
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => { setR2EnableOpen(false); setR2EnablePassword(''); setR2EnableError(null); }}
+                          className="flex-1 py-1.5 text-[11px] text-muted-foreground border border-border rounded-md hover:bg-muted/40 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={handleEnableR2Sync}
+                          disabled={!r2EnablePassword || r2EnableLoading}
+                          className="flex-1 py-1.5 text-[11px] font-medium text-primary-foreground bg-primary rounded-md hover:bg-primary/90 transition-colors disabled:opacity-50"
+                        >
+                          {r2EnableLoading ? 'Enabling…' : 'Enable Backup'}
+                        </button>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 px-3 py-2 bg-muted/30">
+                      <Shield size={11} className="text-primary shrink-0" />
+                      <p className="text-[10px] text-muted-foreground">
+                        AES-256-GCM · Notes encrypted before upload · Server never sees plaintext
+                      </p>
+                    </div>
+                  </div>
                 )}
               </div>
             )}
