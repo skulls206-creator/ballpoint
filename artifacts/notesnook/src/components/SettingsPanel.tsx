@@ -4,7 +4,7 @@ import {
   Cloud, CloudOff, Upload, Download, RefreshCw, CheckCircle2,
   AlertCircle, Clock, Copy, X, ChevronDown, ChevronRight,
   Wallet, Shield, ShieldCheck, FlaskConical, FileText, FolderOpen,
-  ArrowLeft,
+  ArrowLeft, LogOut,
 } from 'lucide-react';
 import { useNotesStore } from '../lib/store';
 import { useAuth } from '../lib/authContext';
@@ -61,6 +61,12 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const hasLighthouseKey   = useNotesStore(s => s.hasLighthouseKey);
   const syncEncryptionMode = useNotesStore(s => s.syncEncryptionMode);
   const vaultHandle        = useNotesStore(s => s.vaultHandle);
+  const r2Mode             = useNotesStore(s => s.r2Mode);
+  const r2Status           = useNotesStore(s => s.r2Status);
+  const r2Error            = useNotesStore(s => s.r2Error);
+  const r2LastSynced       = useNotesStore(s => s.r2LastSynced);
+  const userId             = useNotesStore(s => s.userId);
+  const disconnectR2Vault  = useNotesStore(s => s.disconnectR2Vault);
 
   const initSync             = useNotesStore(s => s.initSync);
   const backupNow            = useNotesStore(s => s.backupNow);
@@ -289,6 +295,62 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
         {/* ── Main panel (idle) ── */}
         {restoreStep.kind === 'idle' && (
           <div className="flex-1 overflow-y-auto px-6 py-5 space-y-6">
+
+            {/* ── R2 Cloud Storage status (only in R2 mode) ── */}
+            {r2Mode && (
+              <div className="space-y-2">
+                <h3 className="text-[10.5px] font-semibold text-muted-foreground uppercase tracking-widest">
+                  Cloud Storage
+                </h3>
+                <div className="rounded-lg border border-border overflow-hidden divide-y divide-border">
+                  {/* Status row */}
+                  <div className="flex items-center gap-2.5 px-3 py-2.5">
+                    {r2Status === 'syncing' ? (
+                      <RefreshCw size={13} className="text-primary animate-spin shrink-0" />
+                    ) : r2Status === 'error' ? (
+                      <AlertCircle size={13} className="text-destructive shrink-0" />
+                    ) : (
+                      <CheckCircle2 size={13} className="text-emerald-500 shrink-0" />
+                    )}
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11.5px] font-medium text-foreground">
+                        {r2Status === 'syncing' ? 'Syncing…' : r2Status === 'error' ? 'Sync error' : 'Cloudflare R2 · Connected'}
+                      </p>
+                      {r2LastSynced ? (
+                        <p className="text-[10px] text-muted-foreground">
+                          Last synced {formatDistanceToNow(r2LastSynced, { addSuffix: true })}
+                        </p>
+                      ) : (
+                        <p className="text-[10px] text-muted-foreground">Not synced yet</p>
+                      )}
+                    </div>
+                    <span className="ml-auto shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                      Active
+                    </span>
+                  </div>
+                  {/* Error row */}
+                  {r2Error && (
+                    <div className="px-3 py-2 bg-destructive/5">
+                      <p className="text-[10.5px] text-destructive leading-relaxed">{r2Error}</p>
+                    </div>
+                  )}
+                  {/* Encryption info */}
+                  <div className="flex items-center gap-2 px-3 py-2 bg-muted/30">
+                    <Shield size={11} className="text-primary shrink-0" />
+                    <p className="text-[10px] text-muted-foreground">
+                      AES-256-GCM · Notes encrypted before upload · Server never sees plaintext
+                    </p>
+                  </div>
+                </div>
+                {/* Disconnect button */}
+                <button
+                  onClick={() => userId && disconnectR2Vault(userId)}
+                  className="w-full flex items-center justify-center gap-2 py-2 text-[11px] text-destructive hover:bg-destructive/5 rounded-lg border border-destructive/20 transition-colors"
+                >
+                  <LogOut size={12} /> Disconnect Cloud Vault
+                </button>
+              </div>
+            )}
 
             {/* Encryption mode badge + dev toggle */}
             <div className="space-y-2">

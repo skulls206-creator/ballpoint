@@ -79,6 +79,7 @@ export default function Home() {
 
   // Only subscribe to primitives that this component actually needs
   const vaultHandle       = useNotesStore(s => s.vaultHandle);
+  const proxyVault        = useNotesStore(s => s.proxyVault);
   const isLoading         = useNotesStore(s => s.isLoading);
   const isVaultEncrypted  = useNotesStore(s => s.isVaultEncrypted);
   const encryptionKey     = useNotesStore(s => s.encryptionKey);
@@ -164,7 +165,7 @@ export default function Home() {
     </>
   );
 
-  if (!vaultHandle) {
+  if (!vaultHandle && proxyVault === null) {
     return (
       <div className="flex h-screen w-full bg-background overflow-hidden relative">
         {sidebarDrawer}

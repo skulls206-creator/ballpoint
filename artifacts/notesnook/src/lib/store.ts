@@ -22,6 +22,9 @@ import { migrateNoteAttachments } from './attachments';
 import { backupNow as _backupNow, restoreFromCid as _restoreFromCid, loadSyncHistory as _loadSyncHistory, SyncRecord } from './syncEngine';
 import { NoteSnapshot, SYNC_ENCRYPTION_MODE, getSyncEncryptionMode, setSyncEncryptionMode } from './syncEncryption';
 import { getWalletInfo } from './lighthouseClient';
+import {
+  getR2Status, getR2Key, putR2Key, listR2Notes, getR2Note, putR2Note, deleteR2Note,
+} from './r2Client';
 
 export const STORAGE_LIMIT_BYTES = 100 * 1024 * 1024; // 100 MB
 
@@ -85,6 +88,14 @@ interface NotesState {
   hasLighthouseKey: boolean;
   syncEncryptionMode: string;
 
+  // R2 cloud storage
+  r2Mode: boolean;
+  r2Token: string | null;
+  r2Status: 'idle' | 'syncing' | 'error';
+  r2Error: string | null;
+  r2LastSynced: number | null;
+  r2Configured: boolean;
+
   // Vault
   init: (userId: number) => Promise<void>;
   reset: () => void;
@@ -133,6 +144,12 @@ interface NotesState {
   loadSyncHistory: () => Promise<void>;
   markPendingUpload: (noteId: string) => Promise<void>;
   setDevSyncMode: (mode: 'LIGHTHOUSE' | 'LOCAL_WEBCRYPTO') => void;
+
+  // R2 cloud storage
+  checkR2Status: () => Promise<void>;
+  openR2Vault: (userId: number, token: string, password: string) => Promise<void>;
+  createR2Vault: (userId: number, token: string, password: string) => Promise<void>;
+  disconnectR2Vault: (userId: number) => Promise<void>;
 
   // UI
   setActiveSection: (section: SidebarSection) => void;
@@ -267,9 +284,24 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   hasLighthouseKey: false,
   syncEncryptionMode: SYNC_ENCRYPTION_MODE,
 
+  r2Mode: false,
+  r2Token: null,
+  r2Status: 'idle',
+  r2Error: null,
+  r2LastSynced: null,
+  r2Configured: false,
+
   init: async (userId) => {
     set({ isLoading: true, userId });
     applyTheme(get().theme, get().accentColor);
+
+    // If user was previously using R2 cloud vault, restore that state and wait for password
+    const wasR2 = localStorage.getItem('ballpoint-r2-mode') === '1';
+    if (wasR2) {
+      const status = await getR2Status().catch(() => ({ configured: false, bucket: '' }));
+      set({ isLoading: false, r2Mode: true, r2Configured: status.configured });
+      return;
+    }
 
     const handle = await loadVault(userId);
     if (handle) {
@@ -407,7 +439,12 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   disconnectVault: async (userId) => {
     await clearVault(userId);
     localStorage.removeItem(activeNoteKey(userId));
-    set({ vaultHandle: null, proxyVault: null, proxyContent: {}, notes: [], metadata: {}, tasks: {}, activeNoteId: null, activeContent: '', isDirty: false, encryptionKey: null, isVaultEncrypted: false, noteSizes: {} });
+    localStorage.removeItem('ballpoint-r2-mode');
+    set({
+      vaultHandle: null, proxyVault: null, proxyContent: {}, notes: [], metadata: {}, tasks: {},
+      activeNoteId: null, activeContent: '', isDirty: false, encryptionKey: null, isVaultEncrypted: false, noteSizes: {},
+      r2Mode: false, r2Token: null, r2Status: 'idle', r2Error: null,
+    });
   },
 
   refreshNotes: async () => {
@@ -464,12 +501,21 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     if (!note) return;
 
     if (proxyVault !== null) {
-      // Proxy mode: update in-memory store and notify Hollr to write the file
       const proxyBytes = new TextEncoder().encode(activeContent).length;
       set(s => ({ proxyContent: { ...s.proxyContent, [activeNoteId]: activeContent }, isDirty: false, noteSizes: { ...s.noteSizes, [activeNoteId]: proxyBytes } }));
-      notifyParent({ type: 'ballpoint:write-file', name: activeNoteId, content: activeContent });
+      if (proxyVault !== '__r2_cloud__') {
+        notifyParent({ type: 'ballpoint:write-file', name: activeNoteId, content: activeContent });
+      }
       get().syncNoteTasks(activeNoteId, note.title, activeContent).catch(() => {});
       get().markPendingUpload(activeNoteId).catch(() => {});
+      // R2 mode: encrypt and push to cloud (fire-and-forget)
+      const { r2Token, encryptionKey: eKey } = get();
+      if (proxyVault === '__r2_cloud__' && r2Token && eKey) {
+        encryptContent(activeContent, eKey)
+          .then(enc => putR2Note(r2Token, activeNoteId, enc))
+          .then(() => set({ r2LastSynced: Date.now(), r2Status: 'idle' }))
+          .catch(err => set({ r2Error: err.message, r2Status: 'error' }));
+      }
       return;
     }
 
@@ -507,15 +553,21 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     while (notes.some(n => n.title === finalTitle)) finalTitle = `${title} ${i++}`;
 
     if (proxyVault !== null) {
-      // Proxy mode: create file in memory, notify Hollr
       const safe = finalTitle.replace(/[/\\?%*:|"<>]/g, '-');
       const filename = `${safe}.md`;
       const meta = await updateNoteMeta(userId, filename, { status: 'active', remoteStatus: 'pendingUpload' });
-      set(s => ({
-        proxyContent: { ...s.proxyContent, [filename]: '' },
-        metadata: meta,
-      }));
-      notifyParent({ type: 'ballpoint:create-file', name: filename, content: '' });
+      set(s => ({ proxyContent: { ...s.proxyContent, [filename]: '' }, metadata: meta }));
+      if (proxyVault !== '__r2_cloud__') {
+        notifyParent({ type: 'ballpoint:create-file', name: filename, content: '' });
+      }
+      // R2 mode: persist empty note to cloud
+      const { r2Token, encryptionKey: eKey } = get();
+      if (proxyVault === '__r2_cloud__' && r2Token && eKey) {
+        encryptContent('', eKey)
+          .then(enc => putR2Note(r2Token, filename, enc))
+          .then(() => set({ r2LastSynced: Date.now() }))
+          .catch(err => set({ r2Error: err.message, r2Status: 'error' }));
+      }
       await get().refreshNotes();
       await get().selectNote(filename);
       set({ activeSection: { type: 'all' } });
@@ -543,7 +595,6 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     let resolvedNewName: string;
 
     if (proxyVault !== null) {
-      // Proxy mode: update in-memory content map
       const currentContent = get().proxyContent[id] ?? '';
       set(s => {
         const updated = { ...s.proxyContent };
@@ -551,7 +602,17 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         delete updated[id];
         return { proxyContent: updated };
       });
-      notifyParent({ type: 'ballpoint:rename-file', oldName: id, newName, content: currentContent });
+      if (proxyVault !== '__r2_cloud__') {
+        notifyParent({ type: 'ballpoint:rename-file', oldName: id, newName, content: currentContent });
+      }
+      // R2 mode: delete old key, write new key
+      const { r2Token, encryptionKey: eKey } = get();
+      if (proxyVault === '__r2_cloud__' && r2Token && eKey) {
+        encryptContent(currentContent, eKey)
+          .then(enc => Promise.all([putR2Note(r2Token, newName, enc), deleteR2Note(r2Token, id)]))
+          .then(() => set({ r2LastSynced: Date.now() }))
+          .catch(err => set({ r2Error: err.message, r2Status: 'error' }));
+      }
       resolvedNewName = newName;
     } else {
       const newHandle = await renameNote(vaultHandle!, note.handle, newTitle);
@@ -629,7 +690,16 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         delete sizes[id];
         return { proxyContent: updated, noteSizes: sizes };
       });
-      notifyParent({ type: 'ballpoint:delete-file', name: id });
+      if (proxyVault !== '__r2_cloud__') {
+        notifyParent({ type: 'ballpoint:delete-file', name: id });
+      }
+      // R2 mode: delete from cloud
+      const { r2Token } = get();
+      if (proxyVault === '__r2_cloud__' && r2Token) {
+        deleteR2Note(r2Token, id)
+          .then(() => set({ r2LastSynced: Date.now() }))
+          .catch(err => set({ r2Error: err.message }));
+      }
     } else {
       await deleteNote(vaultHandle!, id);
       set(s => {
@@ -723,7 +793,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   },
 
   toggleTask: async (taskId) => {
-    const { userId, tasks, activeNoteId, activeContent, notes, encryptionKey } = get();
+    const { userId, tasks, activeNoteId, activeContent, notes, encryptionKey, proxyVault, proxyContent, r2Token } = get();
     if (!userId) return;
     const task = tasks[taskId];
     if (!task) return;
@@ -733,10 +803,12 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
     const newCompleted = !task.completed;
 
-    // Read content from memory (if active) or from disk (and decrypt if needed)
+    // Read content from memory (active note, proxy/R2 mode) or from disk
     let content: string;
     if (activeNoteId === task.noteId) {
       content = activeContent;
+    } else if (proxyVault !== null) {
+      content = proxyContent[task.noteId] ?? '';
     } else {
       const raw = await readNote(note.handle);
       content = (isEncrypted(raw) && encryptionKey)
@@ -745,11 +817,24 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     }
     const newContent = toggleTaskInContent(content, task.lineIndex, newCompleted);
 
-    // Re-encrypt if needed before saving
-    const toSave = encryptionKey
-      ? await encryptContent(newContent, encryptionKey)
-      : newContent;
-    await saveNote(note.handle, toSave);
+    // Save content back
+    if (proxyVault !== null) {
+      const proxyBytes = new TextEncoder().encode(newContent).length;
+      set(s => ({ proxyContent: { ...s.proxyContent, [task.noteId]: newContent }, noteSizes: { ...s.noteSizes, [task.noteId]: proxyBytes } }));
+      if (proxyVault !== '__r2_cloud__') {
+        notifyParent({ type: 'ballpoint:write-file', name: task.noteId, content: newContent });
+      }
+      if (proxyVault === '__r2_cloud__' && r2Token && encryptionKey) {
+        encryptContent(newContent, encryptionKey)
+          .then(enc => putR2Note(r2Token, task.noteId, enc))
+          .catch(err => set({ r2Error: err.message }));
+      }
+    } else {
+      const toSave = encryptionKey
+        ? await encryptContent(newContent, encryptionKey)
+        : newContent;
+      await saveNote(note.handle, toSave);
+    }
 
     // If toggled note is the open one, update editor content too
     if (activeNoteId === task.noteId) {
@@ -1014,6 +1099,113 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   setDevSyncMode: (mode) => {
     setSyncEncryptionMode(mode);
     set({ syncEncryptionMode: mode });
+  },
+
+  // ── R2 cloud vault ────────────────────────────────────────────────────────
+
+  checkR2Status: async () => {
+    try {
+      const status = await getR2Status();
+      set({ r2Configured: status.configured });
+    } catch {
+      set({ r2Configured: false });
+    }
+  },
+
+  openR2Vault: async (userId, token, password) => {
+    set({ isLoading: true, r2Status: 'syncing', r2Error: null });
+    try {
+      const keyContent = await getR2Key(token);
+      if (!keyContent) throw new Error('No cloud vault found. Set up a new cloud vault first.');
+      const key = await openKeyFile(keyContent, password);
+      if (!key) throw new Error('Incorrect vault password.');
+
+      const noteList = await listR2Notes(token);
+
+      const proxyContent: Record<string, string> = {};
+      const noteSizes: Record<string, number> = {};
+      await Promise.allSettled(
+        noteList.map(async info => {
+          try {
+            const enc = await getR2Note(token, info.key);
+            const dec = isEncrypted(enc) ? await decryptContent(enc, key) : enc;
+            proxyContent[info.key] = dec;
+            noteSizes[info.key] = new TextEncoder().encode(dec).length;
+          } catch { /* skip corrupted */ }
+        })
+      );
+
+      const metadata = await loadAllMetadata(userId);
+      const existingTasks = await loadAllTasks(userId);
+
+      const rawFiles = noteList
+        .filter(info => proxyContent[info.key] !== undefined)
+        .map(info => ({
+          id: info.key,
+          handle: fakeHandle(info.key),
+          name: info.key,
+          title: info.key.replace(/\.(md|txt)$/, ''),
+          lastModified: info.lastModified,
+        }));
+      const notes = mergeWithMeta(rawFiles, metadata);
+
+      localStorage.setItem('ballpoint-r2-mode', '1');
+
+      set({
+        userId, vaultHandle: null, proxyVault: '__r2_cloud__', proxyContent,
+        notes, metadata, tasks: existingTasks,
+        activeNoteId: null, activeContent: '', isDirty: false,
+        encryptionKey: key, isVaultEncrypted: true, noteSizes,
+        isLoading: false, r2Mode: true, r2Token: token,
+        r2Status: 'idle', r2Error: null, r2LastSynced: Date.now(), r2Configured: true,
+      });
+
+      const first = notes.find(n => n.status === 'active');
+      if (first) get().selectNote(first.id);
+
+      buildFullTaskIndex(userId, notes, existingTasks, key, proxyContent)
+        .then(tasks => set({ tasks }))
+        .catch(() => {});
+    } catch (err: any) {
+      set({ isLoading: false, r2Status: 'error', r2Error: err.message ?? 'Failed to open cloud vault' });
+      throw err;
+    }
+  },
+
+  createR2Vault: async (userId, token, password) => {
+    set({ isLoading: true, r2Status: 'syncing', r2Error: null });
+    try {
+      const { key, content: keyContent } = await createKeyFileContent(password);
+      await putR2Key(token, keyContent);
+
+      const metadata = await loadAllMetadata(userId);
+      const existingTasks = await loadAllTasks(userId);
+
+      localStorage.setItem('ballpoint-r2-mode', '1');
+
+      set({
+        userId, vaultHandle: null, proxyVault: '__r2_cloud__', proxyContent: {},
+        notes: [], metadata, tasks: existingTasks,
+        activeNoteId: null, activeContent: '', isDirty: false,
+        encryptionKey: key, isVaultEncrypted: true, noteSizes: {},
+        isLoading: false, r2Mode: true, r2Token: token,
+        r2Status: 'idle', r2Error: null, r2LastSynced: Date.now(), r2Configured: true,
+      });
+    } catch (err: any) {
+      set({ isLoading: false, r2Status: 'error', r2Error: err.message ?? 'Failed to create cloud vault' });
+      throw err;
+    }
+  },
+
+  disconnectR2Vault: async (userId) => {
+    localStorage.removeItem('ballpoint-r2-mode');
+    localStorage.removeItem(activeNoteKey(userId));
+    set({
+      vaultHandle: null, proxyVault: null, proxyContent: {}, notes: [], metadata: {}, tasks: {},
+      activeNoteId: null, activeContent: '', isDirty: false,
+      encryptionKey: null, isVaultEncrypted: false, noteSizes: {},
+      r2Mode: false, r2Token: null, r2Status: 'idle', r2Error: null,
+    });
   },
 
   // ── UI ────────────────────────────────────────────────────────────────────
