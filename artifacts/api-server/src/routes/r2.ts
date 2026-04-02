@@ -1,4 +1,4 @@
-import { Router, Request, Response, NextFunction } from "express";
+import { Router, Request, Response } from "express";
 import {
   S3Client,
   GetObjectCommand,
@@ -73,15 +73,23 @@ function noR2(res: Response): void {
 }
 
 function sanitizeNoteId(id: string): boolean {
-  return id.length > 0 && !id.includes("/") && !id.includes("\\") && !id.includes("..");
+  return (
+    id.length > 0 &&
+    id.length <= 255 &&
+    !id.includes("/") &&
+    !id.includes("\\") &&
+    !id.includes("..") &&
+    !/[\x00-\x1f]/.test(id)
+  );
 }
 
-// ── Public: status ────────────────────────────────────────────────────────────
+const MAX_NOTE_BYTES = 2 * 1024 * 1024; // 2 MB per note
+
+// ── Public: status (no credentials leaked) ────────────────────────────────────
 
 router.get("/r2/status", (_req: Request, res: Response) => {
   const client = getR2Client();
-  const bucket = getBucket();
-  res.json({ configured: client !== null && Boolean(bucket), bucket });
+  res.json({ configured: client !== null });
 });
 
 // ── Vault key ─────────────────────────────────────────────────────────────────
@@ -97,11 +105,11 @@ router.get("/r2/key", requireAuth, async (req: Request, res: Response) => {
     const content = await readStream(resp.Body as Readable);
     res.json({ content });
   } catch (err: unknown) {
-    const e = err as { name?: string; $metadata?: { httpStatusCode?: number }; message?: string };
+    const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
     if (e.name === "NoSuchKey" || e.$metadata?.httpStatusCode === 404) {
       res.status(404).json({ error: "No key file" });
     } else {
-      res.status(500).json({ error: e.message ?? "R2 error" });
+      res.status(500).json({ error: "R2 error" });
     }
   }
 });
@@ -110,17 +118,26 @@ router.put("/r2/key", requireAuth, async (req: Request, res: Response) => {
   const client = getR2Client();
   if (!client) { noR2(res); return; }
   const { userId } = authed(req).user;
-  const { content } = req.body as { content: string };
-  if (!content) { res.status(400).json({ error: "content required" }); return; }
-  await client.send(
-    new PutObjectCommand({
-      Bucket: getBucket(),
-      Key: `notes/${userId}/.ballpoint-key`,
-      Body: content,
-      ContentType: "application/json",
-    })
-  );
-  res.json({ ok: true });
+  const { content } = req.body as { content?: string };
+  if (!content || typeof content !== "string") {
+    res.status(400).json({ error: "content required" }); return;
+  }
+  if (Buffer.byteLength(content, "utf-8") > 64 * 1024) {
+    res.status(413).json({ error: "Key file too large" }); return;
+  }
+  try {
+    await client.send(
+      new PutObjectCommand({
+        Bucket: getBucket(),
+        Key: `notes/${userId}/.ballpoint-key`,
+        Body: content,
+        ContentType: "application/json",
+      })
+    );
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ error: "R2 error" });
+  }
 });
 
 // ── Notes list ────────────────────────────────────────────────────────────────
@@ -147,15 +164,14 @@ router.get("/r2/notes", requireAuth, async (req: Request, res: Response) => {
         size: obj.Size ?? 0,
       }));
     res.json({ notes });
-  } catch (err: unknown) {
-    const e = err as { message?: string };
-    res.status(500).json({ error: e.message ?? "R2 error" });
+  } catch {
+    res.status(500).json({ error: "R2 error" });
   }
 });
 
 // ── Note CRUD ─────────────────────────────────────────────────────────────────
 
-router.get("/r2/notes/:noteId", requireAuth, async (req: Request, res: Response) => {
+router.get("/r2/notes/:noteId", requireAuth, async (req: Request<{ noteId: string }>, res: Response) => {
   const client = getR2Client();
   if (!client) { noR2(res); return; }
   const { userId } = authed(req).user;
@@ -168,47 +184,60 @@ router.get("/r2/notes/:noteId", requireAuth, async (req: Request, res: Response)
     const content = await readStream(resp.Body as Readable);
     res.json({ content });
   } catch (err: unknown) {
-    const e = err as { name?: string; $metadata?: { httpStatusCode?: number }; message?: string };
+    const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
     if (e.name === "NoSuchKey" || e.$metadata?.httpStatusCode === 404) {
       res.status(404).json({ error: "Note not found" });
     } else {
-      res.status(500).json({ error: e.message ?? "R2 error" });
+      res.status(500).json({ error: "R2 error" });
     }
   }
 });
 
-router.put("/r2/notes/:noteId", requireAuth, async (req: Request, res: Response) => {
+router.put("/r2/notes/:noteId", requireAuth, async (req: Request<{ noteId: string }>, res: Response) => {
   const client = getR2Client();
   if (!client) { noR2(res); return; }
   const { userId } = authed(req).user;
   const { noteId } = req.params;
   if (!sanitizeNoteId(noteId)) { res.status(400).json({ error: "Invalid note ID" }); return; }
-  const { content } = req.body as { content: string };
-  if (content === undefined) { res.status(400).json({ error: "content required" }); return; }
-  await client.send(
-    new PutObjectCommand({
-      Bucket: getBucket(),
-      Key: `notes/${userId}/${noteId}`,
-      Body: content,
-      ContentType: "text/plain; charset=utf-8",
-    })
-  );
-  res.json({ ok: true });
+  const { content } = req.body as { content?: string };
+  if (content === undefined || typeof content !== "string") {
+    res.status(400).json({ error: "content required" }); return;
+  }
+  if (Buffer.byteLength(content, "utf-8") > MAX_NOTE_BYTES) {
+    res.status(413).json({ error: "Note too large (max 2 MB)" }); return;
+  }
+  try {
+    await client.send(
+      new PutObjectCommand({
+        Bucket: getBucket(),
+        Key: `notes/${userId}/${noteId}`,
+        Body: content,
+        ContentType: "text/plain; charset=utf-8",
+      })
+    );
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ error: "R2 error" });
+  }
 });
 
-router.delete("/r2/notes/:noteId", requireAuth, async (req: Request, res: Response) => {
+router.delete("/r2/notes/:noteId", requireAuth, async (req: Request<{ noteId: string }>, res: Response) => {
   const client = getR2Client();
   if (!client) { noR2(res); return; }
   const { userId } = authed(req).user;
   const { noteId } = req.params;
   if (!sanitizeNoteId(noteId)) { res.status(400).json({ error: "Invalid note ID" }); return; }
-  await client.send(
-    new DeleteObjectCommand({ Bucket: getBucket(), Key: `notes/${userId}/${noteId}` })
-  );
-  res.json({ ok: true });
+  try {
+    await client.send(
+      new DeleteObjectCommand({ Bucket: getBucket(), Key: `notes/${userId}/${noteId}` })
+    );
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ error: "R2 error" });
+  }
 });
 
-// ── Metadata (GET/PUT /r2/metadata) ──────────────────────────────────────────
+// ── Metadata ──────────────────────────────────────────────────────────────────
 
 router.get("/r2/metadata", requireAuth, async (req: Request, res: Response) => {
   const client = getR2Client();
@@ -221,11 +250,11 @@ router.get("/r2/metadata", requireAuth, async (req: Request, res: Response) => {
     const content = await readStream(resp.Body as Readable);
     res.json({ content });
   } catch (err: unknown) {
-    const e = err as { name?: string; $metadata?: { httpStatusCode?: number }; message?: string };
+    const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
     if (e.name === "NoSuchKey" || e.$metadata?.httpStatusCode === 404) {
       res.json({ content: "{}" });
     } else {
-      res.status(500).json({ error: e.message ?? "R2 error" });
+      res.status(500).json({ error: "R2 error" });
     }
   }
 });
@@ -234,20 +263,29 @@ router.put("/r2/metadata", requireAuth, async (req: Request, res: Response) => {
   const client = getR2Client();
   if (!client) { noR2(res); return; }
   const { userId } = authed(req).user;
-  const { content } = req.body as { content: string };
-  if (content === undefined) { res.status(400).json({ error: "content required" }); return; }
-  await client.send(
-    new PutObjectCommand({
-      Bucket: getBucket(),
-      Key: `notes/${userId}/.ballpoint-meta`,
-      Body: content,
-      ContentType: "application/json",
-    })
-  );
-  res.json({ ok: true });
+  const { content } = req.body as { content?: string };
+  if (content === undefined || typeof content !== "string") {
+    res.status(400).json({ error: "content required" }); return;
+  }
+  if (Buffer.byteLength(content, "utf-8") > MAX_NOTE_BYTES) {
+    res.status(413).json({ error: "Metadata too large" }); return;
+  }
+  try {
+    await client.send(
+      new PutObjectCommand({
+        Bucket: getBucket(),
+        Key: `notes/${userId}/.ballpoint-meta`,
+        Body: content,
+        ContentType: "application/json",
+      })
+    );
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ error: "R2 error" });
+  }
 });
 
-// ── Tasks (GET/PUT /r2/tasks) ─────────────────────────────────────────────────
+// ── Tasks ─────────────────────────────────────────────────────────────────────
 
 router.get("/r2/tasks", requireAuth, async (req: Request, res: Response) => {
   const client = getR2Client();
@@ -260,11 +298,11 @@ router.get("/r2/tasks", requireAuth, async (req: Request, res: Response) => {
     const content = await readStream(resp.Body as Readable);
     res.json({ content });
   } catch (err: unknown) {
-    const e = err as { name?: string; $metadata?: { httpStatusCode?: number }; message?: string };
+    const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
     if (e.name === "NoSuchKey" || e.$metadata?.httpStatusCode === 404) {
       res.json({ content: "{}" });
     } else {
-      res.status(500).json({ error: e.message ?? "R2 error" });
+      res.status(500).json({ error: "R2 error" });
     }
   }
 });
@@ -273,17 +311,26 @@ router.put("/r2/tasks", requireAuth, async (req: Request, res: Response) => {
   const client = getR2Client();
   if (!client) { noR2(res); return; }
   const { userId } = authed(req).user;
-  const { content } = req.body as { content: string };
-  if (content === undefined) { res.status(400).json({ error: "content required" }); return; }
-  await client.send(
-    new PutObjectCommand({
-      Bucket: getBucket(),
-      Key: `notes/${userId}/.ballpoint-tasks`,
-      Body: content,
-      ContentType: "application/json",
-    })
-  );
-  res.json({ ok: true });
+  const { content } = req.body as { content?: string };
+  if (content === undefined || typeof content !== "string") {
+    res.status(400).json({ error: "content required" }); return;
+  }
+  if (Buffer.byteLength(content, "utf-8") > MAX_NOTE_BYTES) {
+    res.status(413).json({ error: "Tasks payload too large" }); return;
+  }
+  try {
+    await client.send(
+      new PutObjectCommand({
+        Bucket: getBucket(),
+        Key: `notes/${userId}/.ballpoint-tasks`,
+        Body: content,
+        ContentType: "application/json",
+      })
+    );
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ error: "R2 error" });
+  }
 });
 
 export default router;
