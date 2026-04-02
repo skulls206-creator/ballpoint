@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import {
-  Cloud, CloudOff, Upload, Download, RefreshCw, CheckCircle2,
+  Cloud, CloudOff, CloudUpload, Upload, Download, RefreshCw, CheckCircle2,
   AlertCircle, Clock, Copy, X, ChevronDown, ChevronRight,
   Wallet, Shield, ShieldCheck, FlaskConical, FileText, FolderOpen,
   ArrowLeft, LogOut,
@@ -65,8 +65,12 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
   const r2Status           = useNotesStore(s => s.r2Status);
   const r2Error            = useNotesStore(s => s.r2Error);
   const r2LastSynced       = useNotesStore(s => s.r2LastSynced);
+  const r2PendingCount     = useNotesStore(s => s.r2PendingCount);
+  const storageMode        = useNotesStore(s => s.storageMode);
   const userId             = useNotesStore(s => s.userId);
   const disconnectR2Vault  = useNotesStore(s => s.disconnectR2Vault);
+  const syncR2Now          = useNotesStore(s => s.syncR2Now);
+  const disableR2Sync      = useNotesStore(s => s.disableR2Sync);
 
   const initSync             = useNotesStore(s => s.initSync);
   const backupNow            = useNotesStore(s => s.backupNow);
@@ -314,7 +318,13 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
                     )}
                     <div className="flex-1 min-w-0">
                       <p className="text-[11.5px] font-medium text-foreground">
-                        {r2Status === 'syncing' ? 'Syncing…' : r2Status === 'error' ? 'Sync error' : 'Cloudflare R2 · Connected'}
+                        {r2Status === 'syncing'
+                          ? 'Syncing…'
+                          : r2Status === 'error'
+                          ? 'Sync error'
+                          : storageMode === 'local+r2'
+                          ? 'Cloudflare R2 · Cloud backup on'
+                          : 'Cloudflare R2 · Connected'}
                       </p>
                       {r2LastSynced ? (
                         <p className="text-[10px] text-muted-foreground">
@@ -324,14 +334,36 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
                         <p className="text-[10px] text-muted-foreground">Not synced yet</p>
                       )}
                     </div>
-                    <span className="ml-auto shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
-                      Active
-                    </span>
+                    <div className="flex items-center gap-1.5 ml-auto shrink-0">
+                      {r2PendingCount > 0 && (
+                        <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 border border-amber-500/20">
+                          {r2PendingCount} pending
+                        </span>
+                      )}
+                      <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                        {storageMode === 'local+r2' ? 'Backup' : 'Cloud'}
+                      </span>
+                    </div>
                   </div>
                   {/* Error row */}
                   {r2Error && (
                     <div className="px-3 py-2 bg-destructive/5">
                       <p className="text-[10.5px] text-destructive leading-relaxed">{r2Error}</p>
+                    </div>
+                  )}
+                  {/* Pending ops row */}
+                  {r2PendingCount > 0 && r2Status !== 'syncing' && (
+                    <div className="flex items-center gap-2 px-3 py-2 bg-amber-500/5">
+                      <CloudUpload size={11} className="text-amber-500 shrink-0" />
+                      <p className="text-[10px] text-amber-700 dark:text-amber-400 flex-1">
+                        {r2PendingCount} operation{r2PendingCount !== 1 ? 's' : ''} queued for upload
+                      </p>
+                      <button
+                        onClick={() => syncR2Now()}
+                        className="text-[10px] font-medium px-2 py-0.5 rounded bg-amber-500/20 hover:bg-amber-500/30 text-amber-700 dark:text-amber-300 transition-colors"
+                      >
+                        Sync Now
+                      </button>
                     </div>
                   )}
                   {/* Encryption info */}
@@ -342,13 +374,31 @@ export function SettingsPanel({ onClose }: { onClose: () => void }) {
                     </p>
                   </div>
                 </div>
-                {/* Disconnect button */}
-                <button
-                  onClick={() => userId && disconnectR2Vault(userId)}
-                  className="w-full flex items-center justify-center gap-2 py-2 text-[11px] text-destructive hover:bg-destructive/5 rounded-lg border border-destructive/20 transition-colors"
-                >
-                  <LogOut size={12} /> Disconnect Cloud Vault
-                </button>
+                {/* Manual sync button (always show when not syncing) */}
+                {r2Status !== 'syncing' && (
+                  <button
+                    onClick={() => syncR2Now()}
+                    className="w-full flex items-center justify-center gap-2 py-2 text-[11px] text-primary hover:bg-primary/5 rounded-lg border border-primary/20 transition-colors"
+                  >
+                    <RefreshCw size={12} /> Sync Now
+                  </button>
+                )}
+                {/* Disconnect / disable button */}
+                {storageMode === 'local+r2' ? (
+                  <button
+                    onClick={() => disableR2Sync()}
+                    className="w-full flex items-center justify-center gap-2 py-2 text-[11px] text-muted-foreground hover:bg-muted/40 rounded-lg border border-border transition-colors"
+                  >
+                    <LogOut size={12} /> Disable Cloud Backup
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => userId && disconnectR2Vault(userId)}
+                    className="w-full flex items-center justify-center gap-2 py-2 text-[11px] text-destructive hover:bg-destructive/5 rounded-lg border border-destructive/20 transition-colors"
+                  >
+                    <LogOut size={12} /> Disconnect Cloud Vault
+                  </button>
+                )}
               </div>
             )}
 

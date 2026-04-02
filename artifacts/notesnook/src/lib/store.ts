@@ -24,7 +24,12 @@ import { NoteSnapshot, SYNC_ENCRYPTION_MODE, getSyncEncryptionMode, setSyncEncry
 import { getWalletInfo } from './lighthouseClient';
 import {
   getR2Status, getR2Key, putR2Key, listR2Notes, getR2Note, putR2Note, deleteR2Note,
+  getR2Metadata, putR2Metadata, getR2Tasks, putR2Tasks,
 } from './r2Client';
+import {
+  enqueueR2Op, flushR2Queue, initR2Queue, clearR2Queue,
+  onR2PendingCountChange, getR2PendingCount,
+} from './r2Queue';
 
 export const STORAGE_LIMIT_BYTES = 100 * 1024 * 1024; // 100 MB
 
@@ -89,12 +94,16 @@ interface NotesState {
   syncEncryptionMode: string;
 
   // R2 cloud storage
+  /** Which storage backend is active for this session. */
+  storageMode: 'local' | 'r2' | 'local+r2';
   r2Mode: boolean;
   r2Token: string | null;
   r2Status: 'idle' | 'syncing' | 'error';
   r2Error: string | null;
   r2LastSynced: number | null;
   r2Configured: boolean;
+  /** Number of operations waiting in the IndexedDB offline sync queue. */
+  r2PendingCount: number;
 
   // Vault
   init: (userId: number) => Promise<void>;
@@ -150,6 +159,12 @@ interface NotesState {
   openR2Vault: (userId: number, token: string, password: string) => Promise<void>;
   createR2Vault: (userId: number, token: string, password: string) => Promise<void>;
   disconnectR2Vault: (userId: number) => Promise<void>;
+  /** Enable R2 as a background sync layer alongside the local FS vault (desktop local+r2 mode). */
+  enableR2Sync: (token: string, password: string) => Promise<void>;
+  /** Disable R2 background sync and return to local-only mode. */
+  disableR2Sync: () => Promise<void>;
+  /** Manually flush the pending sync queue to R2. */
+  syncR2Now: () => Promise<void>;
 
   // UI
   setActiveSection: (section: SidebarSection) => void;
@@ -284,23 +299,35 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   hasLighthouseKey: false,
   syncEncryptionMode: SYNC_ENCRYPTION_MODE,
 
+  storageMode: 'local' as 'local' | 'r2' | 'local+r2',
   r2Mode: false,
   r2Token: null,
   r2Status: 'idle',
   r2Error: null,
   r2LastSynced: null,
   r2Configured: false,
+  r2PendingCount: 0,
 
   init: async (userId) => {
     set({ isLoading: true, userId });
     applyTheme(get().theme, get().accentColor);
 
-    // If user was previously using R2 cloud vault, restore that state and wait for password
+    // Subscribe to R2 pending queue count changes
+    onR2PendingCountChange(count => set({ r2PendingCount: count }));
+
+    // If user was previously using R2 cloud vault only, restore that state and wait for password
     const wasR2 = localStorage.getItem('ballpoint-r2-mode') === '1';
     if (wasR2) {
       const status = await getR2Status().catch(() => ({ configured: false, bucket: '' }));
-      set({ isLoading: false, r2Mode: true, r2Configured: status.configured });
+      await initR2Queue(userId);
+      set({ isLoading: false, r2Mode: true, r2Configured: status.configured, storageMode: 'r2' });
       return;
+    }
+
+    // If local+r2 dual mode was enabled previously, note it for after vault loads
+    const wasLocalPlusR2 = localStorage.getItem('ballpoint-r2-sync') === '1';
+    if (wasLocalPlusR2) {
+      await initR2Queue(userId);
     }
 
     const handle = await loadVault(userId);
@@ -313,7 +340,12 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       ]);
       const notes = mergeWithMeta(rawFiles, meta);
       const isVaultEncrypted = keyFile !== null;
-      set({ vaultHandle: handle, notes, metadata: meta, tasks: existingTasks, isVaultEncrypted, encryptionKey: null, isLoading: false });
+      set({
+        vaultHandle: handle, notes, metadata: meta, tasks: existingTasks,
+        isVaultEncrypted, encryptionKey: null, isLoading: false,
+        storageMode: wasLocalPlusR2 ? 'local+r2' : 'local',
+        r2Mode: wasLocalPlusR2,
+      });
       scanFolderSizes(handle).then(noteSizes => set({ noteSizes })).catch(() => {});
 
       if (!isVaultEncrypted) {
@@ -336,9 +368,11 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   },
 
   reset: () => set({
-    userId: null, vaultHandle: null, notes: [], metadata: {}, tasks: {},
+    userId: null, vaultHandle: null, proxyVault: null, proxyContent: {}, notes: [], metadata: {}, tasks: {},
     activeNoteId: null, activeContent: '', isDirty: false, isLoading: false, searchQuery: '',
     encryptionKey: null, isVaultEncrypted: false, noteSizes: {},
+    storageMode: 'local' as const, r2Mode: false, r2Token: null, r2PendingCount: 0,
+    r2Status: 'idle' as const, r2Error: null, r2LastSynced: null,
   }),
 
   openNewVault: async (userId) => {
@@ -508,13 +542,17 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       }
       get().syncNoteTasks(activeNoteId, note.title, activeContent).catch(() => {});
       get().markPendingUpload(activeNoteId).catch(() => {});
-      // R2 mode: encrypt and push to cloud (fire-and-forget)
+      // R2 mode: encrypt then enqueue + flush
       const { r2Token, encryptionKey: eKey } = get();
       if (proxyVault === '__r2_cloud__' && r2Token && eKey) {
+        set({ r2Status: 'syncing' });
         encryptContent(activeContent, eKey)
-          .then(enc => putR2Note(r2Token, activeNoteId, enc))
-          .then(() => set({ r2LastSynced: Date.now(), r2Status: 'idle' }))
-          .catch(err => set({ r2Error: err.message, r2Status: 'error' }));
+          .then(async enc => {
+            await enqueueR2Op(userId, { op: 'put-note', key: activeNoteId, content: enc });
+            return flushR2Queue(userId, r2Token);
+          })
+          .then(() => set({ r2LastSynced: Date.now(), r2Status: 'idle', r2Error: null }))
+          .catch(err => set({ r2Error: (err as Error).message, r2Status: 'error' }));
       }
       return;
     }
@@ -531,6 +569,15 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     await get().refreshNotes();
     get().syncNoteTasks(activeNoteId, note.title, activeContent).catch(() => {});
     get().markPendingUpload(activeNoteId).catch(() => {});
+    // local+r2: also enqueue to cloud (queue is flushed by syncR2Now / background timer)
+    const { storageMode: sm, r2Token: rt2, encryptionKey: ek2 } = get();
+    if (sm === 'local+r2' && rt2 && ek2) {
+      encryptContent(activeContent, ek2)
+        .then(enc => enqueueR2Op(userId, { op: 'put-note', key: activeNoteId, content: enc }))
+        .then(() => flushR2Queue(userId, rt2))
+        .then(() => set({ r2LastSynced: Date.now(), r2Status: 'idle', r2Error: null }))
+        .catch(() => set({ r2Status: 'error', r2Error: 'Note queued for next sync' }));
+    }
   },
 
   createNewNote: async (title = 'Untitled') => {
@@ -560,13 +607,16 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       if (proxyVault !== '__r2_cloud__') {
         notifyParent({ type: 'ballpoint:create-file', name: filename, content: '' });
       }
-      // R2 mode: persist empty note to cloud
+      // R2 mode: enqueue empty note then flush
       const { r2Token, encryptionKey: eKey } = get();
       if (proxyVault === '__r2_cloud__' && r2Token && eKey) {
         encryptContent('', eKey)
-          .then(enc => putR2Note(r2Token, filename, enc))
-          .then(() => set({ r2LastSynced: Date.now() }))
-          .catch(err => set({ r2Error: err.message, r2Status: 'error' }));
+          .then(async enc => {
+            await enqueueR2Op(userId!, { op: 'put-note', key: filename, content: enc });
+            return flushR2Queue(userId!, r2Token);
+          })
+          .then(() => set({ r2LastSynced: Date.now(), r2Status: 'idle', r2Error: null }))
+          .catch(err => set({ r2Error: (err as Error).message, r2Status: 'error' }));
       }
       await get().refreshNotes();
       await get().selectNote(filename);
@@ -605,13 +655,17 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       if (proxyVault !== '__r2_cloud__') {
         notifyParent({ type: 'ballpoint:rename-file', oldName: id, newName, content: currentContent });
       }
-      // R2 mode: delete old key, write new key
-      const { r2Token, encryptionKey: eKey } = get();
-      if (proxyVault === '__r2_cloud__' && r2Token && eKey) {
+      // R2 mode: enqueue put-new + delete-old, then flush
+      const { r2Token, encryptionKey: eKey, userId: uid } = get();
+      if (proxyVault === '__r2_cloud__' && r2Token && eKey && uid) {
         encryptContent(currentContent, eKey)
-          .then(enc => Promise.all([putR2Note(r2Token, newName, enc), deleteR2Note(r2Token, id)]))
-          .then(() => set({ r2LastSynced: Date.now() }))
-          .catch(err => set({ r2Error: err.message, r2Status: 'error' }));
+          .then(async enc => {
+            await enqueueR2Op(uid, { op: 'put-note', key: newName, content: enc });
+            await enqueueR2Op(uid, { op: 'delete-note', key: id });
+            return flushR2Queue(uid, r2Token);
+          })
+          .then(() => set({ r2LastSynced: Date.now(), r2Status: 'idle', r2Error: null }))
+          .catch(err => set({ r2Error: (err as Error).message, r2Status: 'error' }));
       }
       resolvedNewName = newName;
     } else {
@@ -630,7 +684,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     await get().refreshNotes();
 
     // Move tasks to new note ID
-    const { tasks } = get();
+    const { tasks, r2Token: rt3, storageMode: sm3 } = get();
     const newTasks: TaskMap = {};
     for (const [key, t] of Object.entries(tasks)) {
       if (t.noteId === id) {
@@ -643,6 +697,14 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     await saveAllTasks(userId, newTasks);
     set({ tasks: newTasks });
 
+    // Sync metadata + tasks to R2 if active
+    if ((sm3 === 'r2' || sm3 === 'local+r2') && rt3 && userId) {
+      enqueueR2Op(userId, { op: 'put-metadata', key: '.ballpoint-meta', content: JSON.stringify(newMeta) })
+        .then(() => enqueueR2Op(userId!, { op: 'put-tasks', key: '.ballpoint-tasks', content: JSON.stringify(newTasks) }))
+        .then(() => flushR2Queue(userId!, rt3))
+        .catch(() => {});
+    }
+
     if (activeNoteId === id && userId) {
       localStorage.setItem(activeNoteKey(userId), resolvedNewName);
       set({ activeNoteId: resolvedNewName });
@@ -650,7 +712,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   },
 
   trashNote: async (id) => {
-    const { userId, metadata } = get();
+    const { userId, metadata, r2Token: rt6, storageMode: sm6 } = get();
     if (!userId) return;
     const newMeta = await updateNoteMeta(userId, id, { status: 'trashed', trashedAt: Date.now() }, { ...metadata });
     set({ metadata: newMeta });
@@ -661,6 +723,14 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const newTasks = Object.fromEntries(Object.entries(tasks).filter(([, t]) => t.noteId !== id));
     await saveAllTasks(userId, newTasks);
     set({ tasks: newTasks });
+
+    // Sync metadata + tasks to R2 if active
+    if ((sm6 === 'r2' || sm6 === 'local+r2') && rt6) {
+      enqueueR2Op(userId, { op: 'put-metadata', key: '.ballpoint-meta', content: JSON.stringify(newMeta) })
+        .then(() => enqueueR2Op(userId!, { op: 'put-tasks', key: '.ballpoint-tasks', content: JSON.stringify(newTasks) }))
+        .then(() => flushR2Queue(userId!, rt6))
+        .catch(() => {});
+    }
 
     if (get().activeNoteId === id) {
       const next = get().notes.find(n => n.status === 'active');
@@ -693,12 +763,13 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       if (proxyVault !== '__r2_cloud__') {
         notifyParent({ type: 'ballpoint:delete-file', name: id });
       }
-      // R2 mode: delete from cloud
-      const { r2Token } = get();
-      if (proxyVault === '__r2_cloud__' && r2Token) {
-        deleteR2Note(r2Token, id)
-          .then(() => set({ r2LastSynced: Date.now() }))
-          .catch(err => set({ r2Error: err.message }));
+      // R2 mode: enqueue delete then flush
+      const { r2Token, userId: uid } = get();
+      if (proxyVault === '__r2_cloud__' && r2Token && uid) {
+        enqueueR2Op(uid, { op: 'delete-note', key: id })
+          .then(() => flushR2Queue(uid, r2Token))
+          .then(() => set({ r2LastSynced: Date.now(), r2Status: 'idle', r2Error: null }))
+          .catch(err => set({ r2Error: (err as Error).message }));
       }
     } else {
       await deleteNote(vaultHandle!, id);
@@ -712,10 +783,19 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     set({ metadata: newMeta });
 
     // Remove tasks for deleted note
-    const { tasks } = get();
+    const { tasks, r2Token: rt4, storageMode: sm4 } = get();
     const newTasks = Object.fromEntries(Object.entries(tasks).filter(([, t]) => t.noteId !== id));
     await saveAllTasks(userId, newTasks);
     set({ tasks: newTasks });
+
+    // Sync tasks (and metadata) to R2 if active
+    if ((sm4 === 'r2' || sm4 === 'local+r2') && rt4 && userId) {
+      const metaAfter = get().metadata;
+      enqueueR2Op(userId, { op: 'put-metadata', key: '.ballpoint-meta', content: JSON.stringify(metaAfter) })
+        .then(() => enqueueR2Op(userId!, { op: 'put-tasks', key: '.ballpoint-tasks', content: JSON.stringify(newTasks) }))
+        .then(() => flushR2Queue(userId!, rt4))
+        .catch(() => {});
+    }
 
     await get().refreshNotes();
     if (activeNoteId === id) {
@@ -824,10 +904,14 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       if (proxyVault !== '__r2_cloud__') {
         notifyParent({ type: 'ballpoint:write-file', name: task.noteId, content: newContent });
       }
-      if (proxyVault === '__r2_cloud__' && r2Token && encryptionKey) {
+      if (proxyVault === '__r2_cloud__' && r2Token && encryptionKey && userId) {
         encryptContent(newContent, encryptionKey)
-          .then(enc => putR2Note(r2Token, task.noteId, enc))
-          .catch(err => set({ r2Error: err.message }));
+          .then(async enc => {
+            await enqueueR2Op(userId, { op: 'put-note', key: task.noteId, content: enc });
+            return flushR2Queue(userId, r2Token);
+          })
+          .then(() => set({ r2LastSynced: Date.now(), r2Status: 'idle', r2Error: null }))
+          .catch(err => set({ r2Error: (err as Error).message }));
       }
     } else {
       const toSave = encryptionKey
@@ -846,7 +930,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   },
 
   setTaskDueDate: async (taskId, dueDate) => {
-    const { userId, tasks } = get();
+    const { userId, tasks, r2Token: rt5, storageMode: sm5 } = get();
     if (!userId) return;
     const task = tasks[taskId];
     if (!task) return;
@@ -854,6 +938,12 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const newTasks = { ...tasks, [taskId]: updated };
     await saveAllTasks(userId, newTasks);
     set({ tasks: newTasks });
+    // Sync tasks to R2 if active
+    if ((sm5 === 'r2' || sm5 === 'local+r2') && rt5) {
+      enqueueR2Op(userId, { op: 'put-tasks', key: '.ballpoint-tasks', content: JSON.stringify(newTasks) })
+        .then(() => flushR2Queue(userId!, rt5))
+        .catch(() => {});
+    }
   },
 
   createTaskNote: async (text = 'New task') => {
@@ -1120,8 +1210,14 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       const key = await openKeyFile(keyContent, password);
       if (!key) throw new Error('Incorrect vault password.');
 
-      const noteList = await listR2Notes(token);
+      // Load notes + metadata + tasks from R2 in parallel
+      const [noteList, cloudMetaJson, cloudTasksJson] = await Promise.all([
+        listR2Notes(token),
+        getR2Metadata(token),
+        getR2Tasks(token),
+      ]);
 
+      // Decrypt all notes
       const proxyContent: Record<string, string> = {};
       const noteSizes: Record<string, number> = {};
       await Promise.allSettled(
@@ -1135,8 +1231,17 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         })
       );
 
-      const metadata = await loadAllMetadata(userId);
-      const existingTasks = await loadAllTasks(userId);
+      // Merge metadata: R2 cloud takes precedence over local IDB
+      const localMeta = await loadAllMetadata(userId);
+      let cloudMeta: typeof localMeta = {};
+      try { cloudMeta = JSON.parse(cloudMetaJson) as typeof localMeta; } catch { /* use local */ }
+      const metadata = { ...localMeta, ...cloudMeta };
+
+      // Merge tasks: R2 cloud takes precedence over local IDB
+      const localTasks = await loadAllTasks(userId);
+      let cloudTasks: typeof localTasks = {};
+      try { cloudTasks = JSON.parse(cloudTasksJson) as typeof localTasks; } catch { /* use local */ }
+      const existingTasks = { ...localTasks, ...cloudTasks };
 
       const rawFiles = noteList
         .filter(info => proxyContent[info.key] !== undefined)
@@ -1149,6 +1254,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         }));
       const notes = mergeWithMeta(rawFiles, metadata);
 
+      await initR2Queue(userId);
       localStorage.setItem('ballpoint-r2-mode', '1');
 
       set({
@@ -1158,16 +1264,21 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         encryptionKey: key, isVaultEncrypted: true, noteSizes,
         isLoading: false, r2Mode: true, r2Token: token,
         r2Status: 'idle', r2Error: null, r2LastSynced: Date.now(), r2Configured: true,
+        storageMode: 'r2',
       });
 
       const first = notes.find(n => n.status === 'active');
       if (first) get().selectNote(first.id);
 
+      // Flush any pending queue operations (from when we were offline)
+      flushR2Queue(userId, token).catch(() => {});
+
       buildFullTaskIndex(userId, notes, existingTasks, key, proxyContent)
         .then(tasks => set({ tasks }))
         .catch(() => {});
-    } catch (err: any) {
-      set({ isLoading: false, r2Status: 'error', r2Error: err.message ?? 'Failed to open cloud vault' });
+    } catch (err: unknown) {
+      const e = err as Error;
+      set({ isLoading: false, r2Status: 'error', r2Error: e.message ?? 'Failed to open cloud vault' });
       throw err;
     }
   },
@@ -1181,6 +1292,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       const metadata = await loadAllMetadata(userId);
       const existingTasks = await loadAllTasks(userId);
 
+      await initR2Queue(userId);
       localStorage.setItem('ballpoint-r2-mode', '1');
 
       set({
@@ -1190,22 +1302,120 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         encryptionKey: key, isVaultEncrypted: true, noteSizes: {},
         isLoading: false, r2Mode: true, r2Token: token,
         r2Status: 'idle', r2Error: null, r2LastSynced: Date.now(), r2Configured: true,
+        storageMode: 'r2',
       });
-    } catch (err: any) {
-      set({ isLoading: false, r2Status: 'error', r2Error: err.message ?? 'Failed to create cloud vault' });
+    } catch (err: unknown) {
+      const e = err as Error;
+      set({ isLoading: false, r2Status: 'error', r2Error: e.message ?? 'Failed to create cloud vault' });
       throw err;
     }
   },
 
   disconnectR2Vault: async (userId) => {
     localStorage.removeItem('ballpoint-r2-mode');
+    localStorage.removeItem('ballpoint-r2-sync');
     localStorage.removeItem(activeNoteKey(userId));
+    await clearR2Queue(userId);
     set({
       vaultHandle: null, proxyVault: null, proxyContent: {}, notes: [], metadata: {}, tasks: {},
       activeNoteId: null, activeContent: '', isDirty: false,
       encryptionKey: null, isVaultEncrypted: false, noteSizes: {},
-      r2Mode: false, r2Token: null, r2Status: 'idle', r2Error: null,
+      storageMode: 'local', r2Mode: false, r2Token: null,
+      r2Status: 'idle', r2Error: null, r2PendingCount: 0,
     });
+  },
+
+  // ── R2 local+r2 dual mode ─────────────────────────────────────────────────
+
+  enableR2Sync: async (token, password) => {
+    const { userId, vaultHandle, encryptionKey } = get();
+    if (!userId || !vaultHandle) throw new Error('Open a local vault first to enable cloud sync.');
+    set({ r2Status: 'syncing', r2Error: null });
+    try {
+      // Try to open an existing R2 key, or create a new one
+      let key: CryptoKey;
+      const existing = await getR2Key(token);
+      if (existing) {
+        const opened = await openKeyFile(existing, password);
+        if (!opened) throw new Error('Incorrect cloud vault password.');
+        key = opened;
+      } else {
+        const { key: newKey, content: keyContent } = await createKeyFileContent(password);
+        await putR2Key(token, keyContent);
+        key = newKey;
+      }
+
+      await initR2Queue(userId);
+      localStorage.setItem('ballpoint-r2-sync', '1');
+
+      set({
+        storageMode: 'local+r2', r2Mode: true, r2Token: token,
+        encryptionKey: encryptionKey ?? key,
+        r2Status: 'idle', r2Error: null, r2Configured: true,
+      });
+
+      // Initial sync: queue all existing notes to R2
+      const { notes, proxyContent: _pc } = get();
+      const cryptoKey = key;
+      await Promise.allSettled(
+        notes
+          .filter(n => n.status === 'active')
+          .map(async n => {
+            try {
+              const { readNote: rn } = await import('./fileSystem');
+              const raw = await rn(n.handle);
+              const { isEncrypted: ie, decryptContent: dc } = await import('./crypto');
+              const plain = (ie(raw) && encryptionKey)
+                ? await dc(raw, encryptionKey)
+                : raw;
+              const enc = await encryptContent(plain, cryptoKey);
+              await enqueueR2Op(userId, { op: 'put-note', key: n.id, content: enc });
+            } catch { /* skip */ }
+          })
+      );
+
+      // Also queue current metadata + tasks
+      const { metadata, tasks } = get();
+      await enqueueR2Op(userId, { op: 'put-metadata', key: '.ballpoint-meta', content: JSON.stringify(metadata) });
+      await enqueueR2Op(userId, { op: 'put-tasks', key: '.ballpoint-tasks', content: JSON.stringify(tasks) });
+
+      // Start flush
+      flushR2Queue(userId, token)
+        .then(() => set({ r2LastSynced: Date.now(), r2Status: 'idle', r2Error: null }))
+        .catch(err => set({ r2Error: (err as Error).message, r2Status: 'error' }));
+    } catch (err: unknown) {
+      const e = err as Error;
+      set({ r2Status: 'error', r2Error: e.message ?? 'Failed to enable cloud sync' });
+      throw err;
+    }
+  },
+
+  disableR2Sync: async () => {
+    const { userId } = get();
+    if (!userId) return;
+    localStorage.removeItem('ballpoint-r2-sync');
+    await clearR2Queue(userId);
+    set({
+      storageMode: 'local', r2Mode: false, r2Token: null,
+      r2Status: 'idle', r2Error: null, r2PendingCount: 0,
+    });
+  },
+
+  syncR2Now: async () => {
+    const { userId, r2Token } = get();
+    if (!userId || !r2Token) return;
+    set({ r2Status: 'syncing', r2Error: null });
+    try {
+      const result = await flushR2Queue(userId, r2Token);
+      set({
+        r2Status: result.failed > 0 ? 'error' : 'idle',
+        r2Error: result.failed > 0 ? `${result.failed} operation(s) failed — will retry` : null,
+        r2LastSynced: result.flushed > 0 ? Date.now() : get().r2LastSynced,
+      });
+    } catch (err: unknown) {
+      const e = err as Error;
+      set({ r2Status: 'error', r2Error: e.message ?? 'Sync failed' });
+    }
   },
 
   // ── UI ────────────────────────────────────────────────────────────────────

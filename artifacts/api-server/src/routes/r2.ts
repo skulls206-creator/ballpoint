@@ -1,4 +1,4 @@
-import { Router, type IRouter, type Request, type Response } from "express";
+import { Router, Request, Response, NextFunction } from "express";
 import {
   S3Client,
   GetObjectCommand,
@@ -9,9 +9,19 @@ import {
 import { requireAuth } from "./auth";
 import type { Readable } from "stream";
 
-const router: IRouter = Router();
+const router = Router();
 
-// ── R2 client (lazy, one per request to pick up env changes) ─────────────────
+// ── Typed auth request ────────────────────────────────────────────────────────
+
+interface AuthedRequest extends Request {
+  user: { userId: number; email: string };
+}
+
+function authed(req: Request): AuthedRequest {
+  return req as AuthedRequest;
+}
+
+// ── R2 client ─────────────────────────────────────────────────────────────────
 
 function getR2Client(): S3Client | null {
   const accountId = process.env["R2_ACCOUNT_ID"];
@@ -37,7 +47,7 @@ async function readStream(
   if (!body) return "";
   if (typeof body === "string") return body;
   if (body instanceof Blob) return body.text();
-  if (typeof (body as any).getReader === "function") {
+  if (typeof (body as ReadableStream).getReader === "function") {
     const reader = (body as ReadableStream).getReader();
     const chunks: Uint8Array[] = [];
     for (;;) {
@@ -46,8 +56,8 @@ async function readStream(
       chunks.push(value as Uint8Array);
     }
     const total = new Uint8Array(chunks.reduce((acc, c) => acc + c.length, 0));
-    let offset = 0;
-    for (const c of chunks) { total.set(c, offset); offset += c.length; }
+    let off = 0;
+    for (const c of chunks) { total.set(c, off); off += c.length; }
     return new TextDecoder().decode(total);
   }
   return new Promise<string>((resolve, reject) => {
@@ -58,34 +68,36 @@ async function readStream(
   });
 }
 
-function sanitizeNoteId(id: string): boolean {
-  return !id.includes("/") && !id.includes("\\") && !id.includes("..");
+function noR2(res: Response): void {
+  res.status(503).json({ error: "R2 not configured" });
 }
 
-// ── Public route: status (no auth needed so the UI can check before login) ───
+function sanitizeNoteId(id: string): boolean {
+  return id.length > 0 && !id.includes("/") && !id.includes("\\") && !id.includes("..");
+}
 
-router.get("/r2/status", async (_req: Request, res: Response) => {
+// ── Public: status ────────────────────────────────────────────────────────────
+
+router.get("/r2/status", (_req: Request, res: Response) => {
   const client = getR2Client();
   const bucket = getBucket();
   res.json({ configured: client !== null && Boolean(bucket), bucket });
 });
 
-// ── All other R2 routes require JWT ──────────────────────────────────────────
+// ── Vault key ─────────────────────────────────────────────────────────────────
 
-router.use("/r2", requireAuth as any);
-
-// GET /r2/key — fetch vault key descriptor
-router.get("/r2/key", async (req: Request, res: Response) => {
+router.get("/r2/key", requireAuth, async (req: Request, res: Response) => {
   const client = getR2Client();
-  if (!client) { res.status(503).json({ error: "R2 not configured" }); return; }
-  const userId = (req as any).user.userId as number;
+  if (!client) { noR2(res); return; }
+  const { userId } = authed(req).user;
   try {
     const resp = await client.send(
       new GetObjectCommand({ Bucket: getBucket(), Key: `notes/${userId}/.ballpoint-key` })
     );
     const content = await readStream(resp.Body as Readable);
     res.json({ content });
-  } catch (e: any) {
+  } catch (err: unknown) {
+    const e = err as { name?: string; $metadata?: { httpStatusCode?: number }; message?: string };
     if (e.name === "NoSuchKey" || e.$metadata?.httpStatusCode === 404) {
       res.status(404).json({ error: "No key file" });
     } else {
@@ -94,11 +106,10 @@ router.get("/r2/key", async (req: Request, res: Response) => {
   }
 });
 
-// PUT /r2/key — store vault key descriptor
-router.put("/r2/key", async (req: Request, res: Response) => {
+router.put("/r2/key", requireAuth, async (req: Request, res: Response) => {
   const client = getR2Client();
-  if (!client) { res.status(503).json({ error: "R2 not configured" }); return; }
-  const userId = (req as any).user.userId as number;
+  if (!client) { noR2(res); return; }
+  const { userId } = authed(req).user;
   const { content } = req.body as { content: string };
   if (!content) { res.status(400).json({ error: "content required" }); return; }
   await client.send(
@@ -112,13 +123,15 @@ router.put("/r2/key", async (req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
-// GET /r2/notes — list notes for this user
-router.get("/r2/notes", async (req: Request, res: Response) => {
+// ── Notes list ────────────────────────────────────────────────────────────────
+
+const SYSTEM_KEYS = new Set([".ballpoint-key", ".ballpoint-meta", ".ballpoint-tasks"]);
+
+router.get("/r2/notes", requireAuth, async (req: Request, res: Response) => {
   const client = getR2Client();
-  if (!client) { res.status(503).json({ error: "R2 not configured" }); return; }
-  const userId = (req as any).user.userId as number;
+  if (!client) { noR2(res); return; }
+  const { userId } = authed(req).user;
   const prefix = `notes/${userId}/`;
-  const SYSTEM_KEYS = new Set([".ballpoint-key", ".ballpoint-meta", ".ballpoint-tasks"]);
   try {
     const result = await client.send(
       new ListObjectsV2Command({ Bucket: getBucket(), Prefix: prefix })
@@ -134,17 +147,19 @@ router.get("/r2/notes", async (req: Request, res: Response) => {
         size: obj.Size ?? 0,
       }));
     res.json({ notes });
-  } catch (e: any) {
+  } catch (err: unknown) {
+    const e = err as { message?: string };
     res.status(500).json({ error: e.message ?? "R2 error" });
   }
 });
 
-// GET /r2/notes/:noteId — get encrypted note content
-router.get("/r2/notes/:noteId", async (req: Request, res: Response) => {
+// ── Note CRUD ─────────────────────────────────────────────────────────────────
+
+router.get("/r2/notes/:noteId", requireAuth, async (req: Request, res: Response) => {
   const client = getR2Client();
-  if (!client) { res.status(503).json({ error: "R2 not configured" }); return; }
-  const userId = (req as any).user.userId as number;
-  const { noteId } = req.params as { noteId: string };
+  if (!client) { noR2(res); return; }
+  const { userId } = authed(req).user;
+  const { noteId } = req.params;
   if (!sanitizeNoteId(noteId)) { res.status(400).json({ error: "Invalid note ID" }); return; }
   try {
     const resp = await client.send(
@@ -152,7 +167,8 @@ router.get("/r2/notes/:noteId", async (req: Request, res: Response) => {
     );
     const content = await readStream(resp.Body as Readable);
     res.json({ content });
-  } catch (e: any) {
+  } catch (err: unknown) {
+    const e = err as { name?: string; $metadata?: { httpStatusCode?: number }; message?: string };
     if (e.name === "NoSuchKey" || e.$metadata?.httpStatusCode === 404) {
       res.status(404).json({ error: "Note not found" });
     } else {
@@ -161,12 +177,11 @@ router.get("/r2/notes/:noteId", async (req: Request, res: Response) => {
   }
 });
 
-// PUT /r2/notes/:noteId — save encrypted note content
-router.put("/r2/notes/:noteId", async (req: Request, res: Response) => {
+router.put("/r2/notes/:noteId", requireAuth, async (req: Request, res: Response) => {
   const client = getR2Client();
-  if (!client) { res.status(503).json({ error: "R2 not configured" }); return; }
-  const userId = (req as any).user.userId as number;
-  const { noteId } = req.params as { noteId: string };
+  if (!client) { noR2(res); return; }
+  const { userId } = authed(req).user;
+  const { noteId } = req.params;
   if (!sanitizeNoteId(noteId)) { res.status(400).json({ error: "Invalid note ID" }); return; }
   const { content } = req.body as { content: string };
   if (content === undefined) { res.status(400).json({ error: "content required" }); return; }
@@ -181,12 +196,11 @@ router.put("/r2/notes/:noteId", async (req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
-// DELETE /r2/notes/:noteId — delete note
-router.delete("/r2/notes/:noteId", async (req: Request, res: Response) => {
+router.delete("/r2/notes/:noteId", requireAuth, async (req: Request, res: Response) => {
   const client = getR2Client();
-  if (!client) { res.status(503).json({ error: "R2 not configured" }); return; }
-  const userId = (req as any).user.userId as number;
-  const { noteId } = req.params as { noteId: string };
+  if (!client) { noR2(res); return; }
+  const { userId } = authed(req).user;
+  const { noteId } = req.params;
   if (!sanitizeNoteId(noteId)) { res.status(400).json({ error: "Invalid note ID" }); return; }
   await client.send(
     new DeleteObjectCommand({ Bucket: getBucket(), Key: `notes/${userId}/${noteId}` })
@@ -194,18 +208,20 @@ router.delete("/r2/notes/:noteId", async (req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
-// GET /r2/meta — get metadata JSON
-router.get("/r2/meta", async (req: Request, res: Response) => {
+// ── Metadata (GET/PUT /r2/metadata) ──────────────────────────────────────────
+
+router.get("/r2/metadata", requireAuth, async (req: Request, res: Response) => {
   const client = getR2Client();
-  if (!client) { res.status(503).json({ error: "R2 not configured" }); return; }
-  const userId = (req as any).user.userId as number;
+  if (!client) { noR2(res); return; }
+  const { userId } = authed(req).user;
   try {
     const resp = await client.send(
       new GetObjectCommand({ Bucket: getBucket(), Key: `notes/${userId}/.ballpoint-meta` })
     );
     const content = await readStream(resp.Body as Readable);
     res.json({ content });
-  } catch (e: any) {
+  } catch (err: unknown) {
+    const e = err as { name?: string; $metadata?: { httpStatusCode?: number }; message?: string };
     if (e.name === "NoSuchKey" || e.$metadata?.httpStatusCode === 404) {
       res.json({ content: "{}" });
     } else {
@@ -214,12 +230,12 @@ router.get("/r2/meta", async (req: Request, res: Response) => {
   }
 });
 
-// PUT /r2/meta — save metadata JSON
-router.put("/r2/meta", async (req: Request, res: Response) => {
+router.put("/r2/metadata", requireAuth, async (req: Request, res: Response) => {
   const client = getR2Client();
-  if (!client) { res.status(503).json({ error: "R2 not configured" }); return; }
-  const userId = (req as any).user.userId as number;
+  if (!client) { noR2(res); return; }
+  const { userId } = authed(req).user;
   const { content } = req.body as { content: string };
+  if (content === undefined) { res.status(400).json({ error: "content required" }); return; }
   await client.send(
     new PutObjectCommand({
       Bucket: getBucket(),
@@ -231,18 +247,20 @@ router.put("/r2/meta", async (req: Request, res: Response) => {
   res.json({ ok: true });
 });
 
-// GET /r2/tasks — get tasks JSON
-router.get("/r2/tasks", async (req: Request, res: Response) => {
+// ── Tasks (GET/PUT /r2/tasks) ─────────────────────────────────────────────────
+
+router.get("/r2/tasks", requireAuth, async (req: Request, res: Response) => {
   const client = getR2Client();
-  if (!client) { res.status(503).json({ error: "R2 not configured" }); return; }
-  const userId = (req as any).user.userId as number;
+  if (!client) { noR2(res); return; }
+  const { userId } = authed(req).user;
   try {
     const resp = await client.send(
       new GetObjectCommand({ Bucket: getBucket(), Key: `notes/${userId}/.ballpoint-tasks` })
     );
     const content = await readStream(resp.Body as Readable);
     res.json({ content });
-  } catch (e: any) {
+  } catch (err: unknown) {
+    const e = err as { name?: string; $metadata?: { httpStatusCode?: number }; message?: string };
     if (e.name === "NoSuchKey" || e.$metadata?.httpStatusCode === 404) {
       res.json({ content: "{}" });
     } else {
@@ -251,12 +269,12 @@ router.get("/r2/tasks", async (req: Request, res: Response) => {
   }
 });
 
-// PUT /r2/tasks — save tasks JSON
-router.put("/r2/tasks", async (req: Request, res: Response) => {
+router.put("/r2/tasks", requireAuth, async (req: Request, res: Response) => {
   const client = getR2Client();
-  if (!client) { res.status(503).json({ error: "R2 not configured" }); return; }
-  const userId = (req as any).user.userId as number;
+  if (!client) { noR2(res); return; }
+  const { userId } = authed(req).user;
   const { content } = req.body as { content: string };
+  if (content === undefined) { res.status(400).json({ error: "content required" }); return; }
   await client.send(
     new PutObjectCommand({
       Bucket: getBucket(),
