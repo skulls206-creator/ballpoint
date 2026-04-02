@@ -1246,9 +1246,28 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         const updated = { ...get().proxyContent };
         for (const snap of snapshots) {
           updated[snap.id] = snap.content;
-          notifyParent({ type: 'ballpoint:write-file', name: snap.id, content: snap.content });
+          if (proxyVault !== '__r2_cloud__') {
+            notifyParent({ type: 'ballpoint:write-file', name: snap.id, content: snap.content });
+          }
         }
         set({ proxyContent: updated });
+        // R2 mode: upload each restored note to cloud
+        if (proxyVault === '__r2_cloud__') {
+          const { userId, r2Token, r2EncryptionKey } = get();
+          if (userId && r2Token && r2EncryptionKey) {
+            await Promise.allSettled(
+              snapshots.map(async snap => {
+                try {
+                  const enc = await encryptContent(snap.content, r2EncryptionKey);
+                  await enqueueR2Op(userId, { op: 'put-note', key: snap.id, content: enc });
+                } catch { /* skip */ }
+              })
+            );
+            flushR2Queue(userId, r2Token)
+              .then(() => set({ r2LastSynced: Date.now(), r2Status: 'idle', r2Error: null }))
+              .catch(() => {});
+          }
+        }
       } else if (vaultHandle) {
         const { saveNote: sn, createNote: cn, renameNote: rnote } = await import('./fileSystem');
         const { encryptContent: ec } = await import('./crypto');
