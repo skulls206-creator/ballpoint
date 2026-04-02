@@ -636,9 +636,9 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     get().syncNoteTasks(activeNoteId, note.title, activeContent).catch(() => {});
     get().markPendingUpload(activeNoteId).catch(() => {});
     // local+r2: also enqueue to cloud (queue is flushed by syncR2Now / background timer)
-    const { storageMode: sm, r2Token: rt2, encryptionKey: ek2 } = get();
-    if (sm === 'local+r2' && rt2 && ek2) {
-      encryptContent(activeContent, ek2)
+    const { storageMode: sm, r2Token: rt2, r2EncryptionKey: r2ek2 } = get();
+    if (sm === 'local+r2' && rt2 && r2ek2) {
+      encryptContent(activeContent, r2ek2)
         .then(enc => enqueueR2Op(userId, { op: 'put-note', key: activeNoteId, content: enc }))
         .then(() => flushR2Queue(userId, rt2))
         .then(() => set({ r2LastSynced: Date.now(), r2Status: 'idle', r2Error: null }))
@@ -674,9 +674,9 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         notifyParent({ type: 'ballpoint:create-file', name: filename, content: '' });
       }
       // R2 mode: enqueue empty note then flush
-      const { r2Token, encryptionKey: eKey } = get();
-      if (proxyVault === '__r2_cloud__' && r2Token && eKey) {
-        encryptContent('', eKey)
+      const { r2Token, r2EncryptionKey: r2eKey } = get();
+      if (proxyVault === '__r2_cloud__' && r2Token && r2eKey) {
+        encryptContent('', r2eKey)
           .then(async enc => {
             await enqueueR2Op(userId!, { op: 'put-note', key: filename, content: enc });
             return flushR2Queue(userId!, r2Token);
@@ -764,9 +764,9 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     set({ tasks: newTasks });
 
     // Sync metadata + tasks to R2 (encrypted) if active
-    const { encryptionKey: ek3 } = get();
-    if ((sm3 === 'r2' || sm3 === 'local+r2') && rt3 && ek3 && userId) {
-      enqueueEncryptedMetaAndTasks(userId, ek3, newMeta as Record<string, unknown>, newTasks as Record<string, unknown>)
+    const { r2EncryptionKey: r2ek3 } = get();
+    if ((sm3 === 'r2' || sm3 === 'local+r2') && rt3 && r2ek3 && userId) {
+      enqueueEncryptedMetaAndTasks(userId, r2ek3, newMeta as Record<string, unknown>, newTasks as Record<string, unknown>)
         .then(() => flushR2Queue(userId!, rt3))
         .catch(() => {});
     }
@@ -791,9 +791,9 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     set({ tasks: newTasks });
 
     // Sync metadata + tasks to R2 (encrypted) if active
-    const { encryptionKey: ek6 } = get();
-    if ((sm6 === 'r2' || sm6 === 'local+r2') && rt6 && ek6) {
-      enqueueEncryptedMetaAndTasks(userId, ek6, newMeta as Record<string, unknown>, newTasks as Record<string, unknown>)
+    const { r2EncryptionKey: r2ek6 } = get();
+    if ((sm6 === 'r2' || sm6 === 'local+r2') && rt6 && r2ek6) {
+      enqueueEncryptedMetaAndTasks(userId, r2ek6, newMeta as Record<string, unknown>, newTasks as Record<string, unknown>)
         .then(() => flushR2Queue(userId!, rt6))
         .catch(() => {});
     }
@@ -855,10 +855,10 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     set({ tasks: newTasks });
 
     // Sync tasks (and metadata) to R2 (encrypted) if active
-    const { encryptionKey: ek4 } = get();
-    if ((sm4 === 'r2' || sm4 === 'local+r2') && rt4 && ek4 && userId) {
+    const { r2EncryptionKey: r2ek4 } = get();
+    if ((sm4 === 'r2' || sm4 === 'local+r2') && rt4 && r2ek4 && userId) {
       const metaAfter = get().metadata;
-      enqueueEncryptedMetaAndTasks(userId, ek4, metaAfter as Record<string, unknown>, newTasks as Record<string, unknown>)
+      enqueueEncryptedMetaAndTasks(userId, r2ek4, metaAfter as Record<string, unknown>, newTasks as Record<string, unknown>)
         .then(() => flushR2Queue(userId!, rt4))
         .catch(() => {});
     }
@@ -1006,8 +1006,9 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       if (proxyVault !== '__r2_cloud__') {
         notifyParent({ type: 'ballpoint:write-file', name: task.noteId, content: newContent });
       }
-      if (proxyVault === '__r2_cloud__' && r2Token && encryptionKey && userId) {
-        encryptContent(newContent, encryptionKey)
+      const { r2EncryptionKey: r2ekT } = get();
+      if (proxyVault === '__r2_cloud__' && r2Token && r2ekT && userId) {
+        encryptContent(newContent, r2ekT)
           .then(async enc => {
             await enqueueR2Op(userId, { op: 'put-note', key: task.noteId, content: enc });
             return flushR2Queue(userId, r2Token);
@@ -1041,9 +1042,9 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     await saveAllTasks(userId, newTasks);
     set({ tasks: newTasks });
     // Sync tasks (and metadata) to R2 (encrypted) if active
-    const { encryptionKey: ek5, metadata: meta5 } = get();
-    if ((sm5 === 'r2' || sm5 === 'local+r2') && rt5 && ek5) {
-      enqueueEncryptedMetaAndTasks(userId, ek5, meta5 as Record<string, unknown>, newTasks as Record<string, unknown>)
+    const { r2EncryptionKey: r2ek5, metadata: meta5 } = get();
+    if ((sm5 === 'r2' || sm5 === 'local+r2') && rt5 && r2ek5) {
+      enqueueEncryptedMetaAndTasks(userId, r2ek5, meta5 as Record<string, unknown>, newTasks as Record<string, unknown>)
         .then(() => flushR2Queue(userId!, rt5))
         .catch(() => {});
     }
@@ -1069,12 +1070,20 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const key = await openKeyFile(keyFileContent, password);
     if (!key) return false;
 
-    const { storageMode } = get();
+    const { storageMode, userId: uid2 } = get();
+    // In local+r2 mode, re-derive the R2 key from the locally cached key file
+    // using the same password.  Works seamlessly when local and cloud passwords
+    // are identical; r2EncryptionKey stays null otherwise (manual sync required).
+    let r2KeyFromCache: CryptoKey | null = null;
+    if (storageMode === 'local+r2' && uid2) {
+      const cached = localStorage.getItem(`ballpoint-r2-key-${uid2}`);
+      if (cached) {
+        r2KeyFromCache = await openKeyFile(cached, password).catch(() => null);
+      }
+    }
     set({
       encryptionKey: key,
-      // In local+r2 mode the local vault key IS the authoritative R2 key —
-      // no separate R2 password is needed after a reload.
-      ...(storageMode === 'local+r2' ? { r2EncryptionKey: key } : {}),
+      ...(r2KeyFromCache ? { r2EncryptionKey: r2KeyFromCache } : {}),
     });
 
     // Auto-open last/first note now that we have the key
@@ -1439,6 +1448,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     stopR2BackgroundSync();
     localStorage.removeItem('ballpoint-r2-mode');
     localStorage.removeItem('ballpoint-r2-sync');
+    localStorage.removeItem(`ballpoint-r2-key-${userId}`);
     localStorage.removeItem(activeNoteKey(userId));
     await clearR2Queue(userId);
     set({
@@ -1455,26 +1465,30 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   enableR2Sync: async (token, password) => {
     const { userId, vaultHandle, encryptionKey } = get();
     if (!userId || !vaultHandle) throw new Error('Open a local vault first to enable cloud sync.');
-    if (!encryptionKey) throw new Error('Vault must be encrypted before enabling cloud sync.');
     set({ r2Status: 'syncing', r2Error: null });
     try {
-      // Store a key file in R2 so the vault can be identified later, but the
-      // authoritative encryption key for local+r2 mode is ALWAYS the local
-      // vault key (encryptionKey). This guarantees one consistent key for all
-      // R2 operations — initial sync and every subsequent save — eliminating
-      // the mixed-key problem across reloads.
+      // Resolve the R2 vault key.  We always use the R2 password-derived key
+      // for cloud payloads so that openR2Vault on any device can decrypt them
+      // with the same password.  The key file content is cached in localStorage
+      // so unlockVault can re-derive r2EncryptionKey after a page reload.
+      let r2Key: CryptoKey;
+      let r2KeyContent: string;
       const existing = await getR2Key(token);
       if (existing) {
         const opened = await openKeyFile(existing, password);
         if (!opened) throw new Error('Incorrect cloud vault password.');
-        // key file verified; we still use the local encryptionKey for actual encryption
+        r2Key = opened;
+        r2KeyContent = existing;
       } else {
-        const { content: keyContent } = await createKeyFileContent(password);
+        const { key: newKey, content: keyContent } = await createKeyFileContent(password);
         await putR2Key(token, keyContent);
+        r2Key = newKey;
+        r2KeyContent = keyContent;
       }
 
-      // r2EncryptionKey = local vault key (single authoritative key)
-      const r2Key = encryptionKey;
+      // Cache key file locally so unlockVault can re-derive r2EncryptionKey
+      // on reload using the same vault password (if passwords match).
+      localStorage.setItem(`ballpoint-r2-key-${userId}`, r2KeyContent);
 
       await initR2Queue(userId);
       startR2BackgroundSync(userId, () => get().r2Token);
@@ -1486,7 +1500,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         r2Status: 'idle', r2Error: null, r2Configured: true,
       });
 
-      // Initial sync: queue all existing notes encrypted with the local vault key
+      // Initial sync: decrypt from local vault, re-encrypt with R2 key, upload
       const { notes } = get();
       await Promise.allSettled(
         notes
@@ -1496,14 +1510,14 @@ export const useNotesStore = create<NotesState>((set, get) => ({
               const { readNote: rn } = await import('./fileSystem');
               const raw = await rn(n.handle);
               const { isEncrypted: ie, decryptContent: dc } = await import('./crypto');
-              const plain = ie(raw) ? await dc(raw, r2Key) : raw;
+              const plain = (ie(raw) && encryptionKey) ? await dc(raw, encryptionKey) : raw;
               const enc = await encryptContent(plain, r2Key);
               await enqueueR2Op(userId, { op: 'put-note', key: n.id, content: enc });
             } catch { /* skip */ }
           })
       );
 
-      // Also queue current metadata + tasks encrypted with the same key
+      // Queue metadata + tasks encrypted with the R2 key (same key openR2Vault uses)
       const { metadata, tasks: curTasks } = get();
       await enqueueEncryptedMetaAndTasks(
         userId,
@@ -1512,7 +1526,6 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         curTasks as Record<string, unknown>,
       );
 
-      // Start flush
       flushR2Queue(userId, token)
         .then(() => set({ r2LastSynced: Date.now(), r2Status: 'idle', r2Error: null }))
         .catch(err => set({ r2Error: (err as Error).message, r2Status: 'error' }));
@@ -1528,6 +1541,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     if (!userId) return;
     stopR2BackgroundSync();
     localStorage.removeItem('ballpoint-r2-sync');
+    localStorage.removeItem(`ballpoint-r2-key-${userId}`);
     await clearR2Queue(userId);
     set({
       storageMode: 'local', r2Mode: false, r2Token: null, r2EncryptionKey: null,
