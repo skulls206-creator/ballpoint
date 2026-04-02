@@ -98,6 +98,11 @@ interface NotesState {
   storageMode: 'local' | 'r2' | 'local+r2';
   r2Mode: boolean;
   r2Token: string | null;
+  /** Dedicated encryption key used for all R2 cloud operations.
+   *  - Pure R2 mode: derived from the R2 vault password.
+   *  - local+r2 mode: mirrors the local vault's encryptionKey (single authoritative key).
+   *  Kept separate so local and cloud keys are always consistent after reload. */
+  r2EncryptionKey: CryptoKey | null;
   r2Status: 'idle' | 'syncing' | 'error';
   r2Error: string | null;
   r2LastSynced: number | null;
@@ -165,6 +170,8 @@ interface NotesState {
   disableR2Sync: () => Promise<void>;
   /** Manually flush the pending sync queue to R2. */
   syncR2Now: () => Promise<void>;
+  /** Re-attach R2 token and restart background sync after reload in local+r2 mode. */
+  reconnectR2Sync: (token: string) => Promise<void>;
 
   // UI
   setActiveSection: (section: SidebarSection) => void;
@@ -360,6 +367,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   storageMode: 'local' as 'local' | 'r2' | 'local+r2',
   r2Mode: false,
   r2Token: null,
+  r2EncryptionKey: null,
   r2Status: 'idle',
   r2Error: null,
   r2LastSynced: null,
@@ -429,7 +437,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     userId: null, vaultHandle: null, proxyVault: null, proxyContent: {}, notes: [], metadata: {}, tasks: {},
     activeNoteId: null, activeContent: '', isDirty: false, isLoading: false, searchQuery: '',
     encryptionKey: null, isVaultEncrypted: false, noteSizes: {},
-    storageMode: 'local' as const, r2Mode: false, r2Token: null, r2PendingCount: 0,
+    storageMode: 'local' as const, r2Mode: false, r2Token: null, r2EncryptionKey: null, r2PendingCount: 0,
     r2Status: 'idle' as const, r2Error: null, r2LastSynced: null,
   }),
 
@@ -869,6 +877,12 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const current = metadata[id]?.isFavorite ?? false;
     const newMeta = await updateNoteMeta(userId, id, { isFavorite: !current }, { ...metadata });
     set({ metadata: newMeta });
+    const { r2Token: rt, storageMode: sm, r2EncryptionKey: ek, tasks: curTasks } = get();
+    if ((sm === 'r2' || sm === 'local+r2') && rt && ek) {
+      enqueueEncryptedMetaAndTasks(userId, ek, newMeta as Record<string, unknown>, curTasks as Record<string, unknown>)
+        .then(() => flushR2Queue(userId, rt))
+        .catch(() => {});
+    }
     await get().refreshNotes();
   },
 
@@ -877,6 +891,12 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     if (!userId) return;
     const newMeta = await updateNoteMeta(userId, id, { status }, { ...metadata });
     set({ metadata: newMeta });
+    const { r2Token: rt, storageMode: sm, r2EncryptionKey: ek, tasks: curTasks } = get();
+    if ((sm === 'r2' || sm === 'local+r2') && rt && ek) {
+      enqueueEncryptedMetaAndTasks(userId, ek, newMeta as Record<string, unknown>, curTasks as Record<string, unknown>)
+        .then(() => flushR2Queue(userId, rt))
+        .catch(() => {});
+    }
     await get().refreshNotes();
   },
 
@@ -885,6 +905,12 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     if (!userId) return;
     const newMeta = await updateNoteMeta(userId, id, { tags }, { ...metadata });
     set({ metadata: newMeta });
+    const { r2Token: rt, storageMode: sm, r2EncryptionKey: ek, tasks: curTasks } = get();
+    if ((sm === 'r2' || sm === 'local+r2') && rt && ek) {
+      enqueueEncryptedMetaAndTasks(userId, ek, newMeta as Record<string, unknown>, curTasks as Record<string, unknown>)
+        .then(() => flushR2Queue(userId, rt))
+        .catch(() => {});
+    }
     await get().refreshNotes();
   },
 
@@ -896,6 +922,12 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       : { hasReminder: false, reminderTime: undefined, reminderStatus: undefined };
     const newMeta = await updateNoteMeta(userId, id, updates, { ...metadata });
     set({ metadata: newMeta });
+    const { r2Token: rt, storageMode: sm, r2EncryptionKey: ek, tasks: curTasks } = get();
+    if ((sm === 'r2' || sm === 'local+r2') && rt && ek) {
+      enqueueEncryptedMetaAndTasks(userId, ek, newMeta as Record<string, unknown>, curTasks as Record<string, unknown>)
+        .then(() => flushR2Queue(userId, rt))
+        .catch(() => {});
+    }
     await get().refreshNotes();
   },
 
@@ -904,6 +936,12 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     if (!userId) return;
     const newMeta = await updateNoteMeta(userId, id, { reminderStatus: 'dismissed' }, { ...metadata });
     set({ metadata: newMeta });
+    const { r2Token: rt, storageMode: sm, r2EncryptionKey: ek, tasks: curTasks } = get();
+    if ((sm === 'r2' || sm === 'local+r2') && rt && ek) {
+      enqueueEncryptedMetaAndTasks(userId, ek, newMeta as Record<string, unknown>, curTasks as Record<string, unknown>)
+        .then(() => flushR2Queue(userId, rt))
+        .catch(() => {});
+    }
     await get().refreshNotes();
   },
 
@@ -912,6 +950,12 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     if (!userId) return;
     const newMeta = await updateNoteMeta(userId, id, { reminderStatus: 'fired' }, { ...metadata });
     set({ metadata: newMeta });
+    const { r2Token: rt, storageMode: sm, r2EncryptionKey: ek, tasks: curTasks } = get();
+    if ((sm === 'r2' || sm === 'local+r2') && rt && ek) {
+      enqueueEncryptedMetaAndTasks(userId, ek, newMeta as Record<string, unknown>, curTasks as Record<string, unknown>)
+        .then(() => flushR2Queue(userId, rt))
+        .catch(() => {});
+    }
     await get().refreshNotes();
   },
 
@@ -1025,7 +1069,13 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const key = await openKeyFile(keyFileContent, password);
     if (!key) return false;
 
-    set({ encryptionKey: key });
+    const { storageMode } = get();
+    set({
+      encryptionKey: key,
+      // In local+r2 mode the local vault key IS the authoritative R2 key —
+      // no separate R2 password is needed after a reload.
+      ...(storageMode === 'local+r2' ? { r2EncryptionKey: key } : {}),
+    });
 
     // Auto-open last/first note now that we have the key
     const lastId = localStorage.getItem(activeNoteKey(userId));
@@ -1331,7 +1381,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         userId, vaultHandle: null, proxyVault: '__r2_cloud__', proxyContent,
         notes, metadata, tasks: existingTasks,
         activeNoteId: null, activeContent: '', isDirty: false,
-        encryptionKey: key, isVaultEncrypted: true, noteSizes,
+        encryptionKey: key, r2EncryptionKey: key, isVaultEncrypted: true, noteSizes,
         isLoading: false, r2Mode: true, r2Token: token,
         r2Status: 'idle', r2Error: null, r2LastSynced: Date.now(), r2Configured: true,
         storageMode: 'r2',
@@ -1373,7 +1423,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         userId, vaultHandle: null, proxyVault: '__r2_cloud__', proxyContent: {},
         notes: [], metadata, tasks: existingTasks,
         activeNoteId: null, activeContent: '', isDirty: false,
-        encryptionKey: key, isVaultEncrypted: true, noteSizes: {},
+        encryptionKey: key, r2EncryptionKey: key, isVaultEncrypted: true, noteSizes: {},
         isLoading: false, r2Mode: true, r2Token: token,
         r2Status: 'idle', r2Error: null, r2LastSynced: Date.now(), r2Configured: true,
         storageMode: 'r2',
@@ -1395,7 +1445,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       vaultHandle: null, proxyVault: null, proxyContent: {}, notes: [], metadata: {}, tasks: {},
       activeNoteId: null, activeContent: '', isDirty: false,
       encryptionKey: null, isVaultEncrypted: false, noteSizes: {},
-      storageMode: 'local', r2Mode: false, r2Token: null,
+      storageMode: 'local', r2Mode: false, r2Token: null, r2EncryptionKey: null,
       r2Status: 'idle', r2Error: null, r2PendingCount: 0,
     });
   },
@@ -1405,20 +1455,26 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   enableR2Sync: async (token, password) => {
     const { userId, vaultHandle, encryptionKey } = get();
     if (!userId || !vaultHandle) throw new Error('Open a local vault first to enable cloud sync.');
+    if (!encryptionKey) throw new Error('Vault must be encrypted before enabling cloud sync.');
     set({ r2Status: 'syncing', r2Error: null });
     try {
-      // Try to open an existing R2 key, or create a new one
-      let key: CryptoKey;
+      // Store a key file in R2 so the vault can be identified later, but the
+      // authoritative encryption key for local+r2 mode is ALWAYS the local
+      // vault key (encryptionKey). This guarantees one consistent key for all
+      // R2 operations — initial sync and every subsequent save — eliminating
+      // the mixed-key problem across reloads.
       const existing = await getR2Key(token);
       if (existing) {
         const opened = await openKeyFile(existing, password);
         if (!opened) throw new Error('Incorrect cloud vault password.');
-        key = opened;
+        // key file verified; we still use the local encryptionKey for actual encryption
       } else {
-        const { key: newKey, content: keyContent } = await createKeyFileContent(password);
+        const { content: keyContent } = await createKeyFileContent(password);
         await putR2Key(token, keyContent);
-        key = newKey;
       }
+
+      // r2EncryptionKey = local vault key (single authoritative key)
+      const r2Key = encryptionKey;
 
       await initR2Queue(userId);
       startR2BackgroundSync(userId, () => get().r2Token);
@@ -1426,13 +1482,12 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
       set({
         storageMode: 'local+r2', r2Mode: true, r2Token: token,
-        encryptionKey: encryptionKey ?? key,
+        r2EncryptionKey: r2Key,
         r2Status: 'idle', r2Error: null, r2Configured: true,
       });
 
-      // Initial sync: queue all existing notes to R2
-      const { notes, proxyContent: _pc } = get();
-      const cryptoKey = key;
+      // Initial sync: queue all existing notes encrypted with the local vault key
+      const { notes } = get();
       await Promise.allSettled(
         notes
           .filter(n => n.status === 'active')
@@ -1441,20 +1496,18 @@ export const useNotesStore = create<NotesState>((set, get) => ({
               const { readNote: rn } = await import('./fileSystem');
               const raw = await rn(n.handle);
               const { isEncrypted: ie, decryptContent: dc } = await import('./crypto');
-              const plain = (ie(raw) && encryptionKey)
-                ? await dc(raw, encryptionKey)
-                : raw;
-              const enc = await encryptContent(plain, cryptoKey);
+              const plain = ie(raw) ? await dc(raw, r2Key) : raw;
+              const enc = await encryptContent(plain, r2Key);
               await enqueueR2Op(userId, { op: 'put-note', key: n.id, content: enc });
             } catch { /* skip */ }
           })
       );
 
-      // Also queue current metadata + tasks (encrypted)
+      // Also queue current metadata + tasks encrypted with the same key
       const { metadata, tasks: curTasks } = get();
       await enqueueEncryptedMetaAndTasks(
         userId,
-        key,
+        r2Key,
         metadata as Record<string, unknown>,
         curTasks as Record<string, unknown>,
       );
@@ -1477,9 +1530,17 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     localStorage.removeItem('ballpoint-r2-sync');
     await clearR2Queue(userId);
     set({
-      storageMode: 'local', r2Mode: false, r2Token: null,
+      storageMode: 'local', r2Mode: false, r2Token: null, r2EncryptionKey: null,
       r2Status: 'idle', r2Error: null, r2PendingCount: 0,
     });
+  },
+
+  reconnectR2Sync: async (token) => {
+    const { userId, storageMode } = get();
+    if (!userId || storageMode !== 'local+r2') return;
+    set({ r2Token: token });
+    startR2BackgroundSync(userId, () => get().r2Token);
+    flushR2Queue(userId, token).catch(() => {});
   },
 
   syncR2Now: async () => {
