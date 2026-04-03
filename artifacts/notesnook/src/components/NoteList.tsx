@@ -4,6 +4,7 @@ import {
   Star, Trash2, Edit2, Archive, RotateCcw,
   Trash, FileText, Bell, Copy, ExternalLink, Menu, Plus,
   Cloud, CloudOff, UploadCloud,
+  Pin, PinOff, Lock,
 } from 'lucide-react';
 import { useNotesStore, selectFilteredNotes, isTaskSection } from '../lib/store';
 import { TaskList } from './TaskList';
@@ -18,9 +19,13 @@ function ContextMenu({
   inTrash,
   inArchive,
   isFavorite,
+  isPinned,
+  isLocked,
   onSelect,
   onRename,
   onFavorite,
+  onPin,
+  onLock,
   onArchive,
   onTrash,
   onRestore,
@@ -33,9 +38,13 @@ function ContextMenu({
   inTrash: boolean;
   inArchive: boolean;
   isFavorite: boolean;
+  isPinned: boolean;
+  isLocked: boolean;
   onSelect: () => void;
   onRename: () => void;
   onFavorite: () => void;
+  onPin: () => void;
+  onLock: () => void;
   onArchive: () => void;
   onTrash: () => void;
   onRestore: () => void;
@@ -83,7 +92,9 @@ function ContextMenu({
   if (!inTrash) {
     items.push({ kind: 'action', icon: <ExternalLink size={12} />, label: 'Open note', action: onSelect });
     items.push({ kind: 'divider' });
-    items.push({ kind: 'action', icon: <Star size={12} className={isFavorite ? 'fill-primary text-primary' : ''} />, label: isFavorite ? 'Unpin from Favorites' : 'Pin to Favorites', action: onFavorite });
+    items.push({ kind: 'action', icon: <Star size={12} className={isFavorite ? 'fill-primary text-primary' : ''} />, label: isFavorite ? 'Unpin from Favorites' : 'Add to Favorites', action: onFavorite });
+    items.push({ kind: 'action', icon: isPinned ? <PinOff size={12} /> : <Pin size={12} />, label: isPinned ? 'Unpin' : 'Pin to top', action: onPin });
+    items.push({ kind: 'action', icon: <Lock size={12} className={isLocked ? 'text-amber-500' : ''} />, label: isLocked ? 'Manage lock' : 'Lock note', action: onLock });
     items.push({ kind: 'action', icon: <Edit2 size={12} />, label: 'Rename', action: onRename });
     items.push({ kind: 'action', icon: <Copy size={12} />, label: 'Duplicate', action: onDuplicate });
     if (!inArchive) {
@@ -147,6 +158,7 @@ export function NoteList({ onOpenSidebar, onNoteOpen }: { onOpenSidebar?: () => 
   const restoreNote           = useNotesStore(s => s.restoreNote);
   const permanentlyDeleteNote = useNotesStore(s => s.permanentlyDeleteNote);
   const toggleFavorite        = useNotesStore(s => s.toggleFavorite);
+  const togglePinned          = useNotesStore(s => s.togglePinned);
   const setNoteStatus         = useNotesStore(s => s.setNoteStatus);
   const renameNote            = useNotesStore(s => s.renameNote);
   const createNewNote         = useNotesStore(s => s.createNewNote);
@@ -304,6 +316,8 @@ export function NoteList({ onOpenSidebar, onNoteOpen }: { onOpenSidebar?: () => 
               >
                 {/* Title row */}
                 <div className="flex items-center gap-1 min-w-0">
+                  {note.isPinned && <Pin size={9} className="text-primary/60 shrink-0" />}
+                  {note.locked  && <Lock size={9} className="text-amber-500/80 shrink-0" />}
                   {note.isFavorite && <Star size={10} className="text-primary shrink-0 fill-primary" />}
                   {note.hasReminder && note.reminderStatus === 'fired' && (
                     <Bell size={10} className="text-orange-400 shrink-0" />
@@ -383,9 +397,13 @@ export function NoteList({ onOpenSidebar, onNoteOpen }: { onOpenSidebar?: () => 
           inTrash={inTrash}
           inArchive={inArchive}
           isFavorite={ctxNote.isFavorite}
+          isPinned={ctxNote.isPinned}
+          isLocked={ctxNote.locked}
           onSelect={() => selectNote(ctxNote.id)}
           onRename={() => { setRenamingId(ctxNote.id); setRenameValue(ctxNote.title); }}
           onFavorite={() => toggleFavorite(ctxNote.id)}
+          onPin={() => togglePinned(ctxNote.id)}
+          onLock={() => selectNote(ctxNote.id)}
           onArchive={() => setNoteStatus(ctxNote.id, 'archived')}
           onTrash={() => trashNote(ctxNote.id)}
           onRestore={() => restoreNote(ctxNote.id)}

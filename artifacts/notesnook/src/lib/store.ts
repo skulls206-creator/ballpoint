@@ -84,6 +84,9 @@ interface NotesState {
   /** Per-note file sizes in bytes (keyed by note ID / filename) */
   noteSizes: Record<string, number>;
 
+  /** Notes unlocked this session (lock is UI-only; vault crypto handles real security) */
+  sessionUnlockedIds: Set<string>;
+
   // Sync (Lighthouse cloud backup)
   syncStatus: 'idle' | 'uploading' | 'downloading' | 'error';
   syncError: string | null;
@@ -137,6 +140,11 @@ interface NotesState {
 
   // Metadata actions
   toggleFavorite: (id: string) => Promise<void>;
+  togglePinned: (id: string) => Promise<void>;
+  lockNote: (id: string, password: string) => Promise<void>;
+  removeLock: (id: string) => Promise<void>;
+  sessionUnlock: (id: string) => void;
+  sessionLock: (id: string) => void;
   setNoteStatus: (id: string, status: NoteStatus) => Promise<void>;
   setTags: (id: string, tags: string[]) => Promise<void>;
   setReminder: (id: string, reminderTime: string | null) => Promise<void>;
@@ -355,6 +363,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   encryptionKey: null,
   isVaultEncrypted: false,
   noteSizes: {},
+  sessionUnlockedIds: new Set<string>(),
 
   syncStatus: 'idle',
   syncError: null,
@@ -436,7 +445,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   reset: () => set({
     userId: null, vaultHandle: null, proxyVault: null, proxyContent: {}, notes: [], metadata: {}, tasks: {},
     activeNoteId: null, activeContent: '', isDirty: false, isLoading: false, searchQuery: '',
-    encryptionKey: null, isVaultEncrypted: false, noteSizes: {},
+    encryptionKey: null, isVaultEncrypted: false, noteSizes: {}, sessionUnlockedIds: new Set<string>(),
     storageMode: 'local' as const, r2Mode: false, r2Token: null, r2EncryptionKey: null, r2PendingCount: 0,
     r2Status: 'idle' as const, r2Error: null, r2LastSynced: null,
   }),
@@ -542,7 +551,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     localStorage.removeItem('ballpoint-r2-mode');
     set({
       vaultHandle: null, proxyVault: null, proxyContent: {}, notes: [], metadata: {}, tasks: {},
-      activeNoteId: null, activeContent: '', isDirty: false, encryptionKey: null, isVaultEncrypted: false, noteSizes: {},
+      activeNoteId: null, activeContent: '', isDirty: false, encryptionKey: null, isVaultEncrypted: false, noteSizes: {}, sessionUnlockedIds: new Set<string>(),
       r2Mode: false, r2Token: null, r2Status: 'idle', r2Error: null,
     });
   },
@@ -884,6 +893,71 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         .catch(() => {});
     }
     await get().refreshNotes();
+  },
+
+  togglePinned: async (id) => {
+    const { userId, metadata } = get();
+    if (!userId) return;
+    const current = metadata[id]?.isPinned ?? false;
+    const newMeta = await updateNoteMeta(userId, id, { isPinned: !current }, { ...metadata });
+    set({ metadata: newMeta });
+    const { r2Token: rt, storageMode: sm, r2EncryptionKey: ek, tasks: curTasks } = get();
+    if ((sm === 'r2' || sm === 'local+r2') && rt && ek) {
+      enqueueEncryptedMetaAndTasks(userId, ek, newMeta as Record<string, unknown>, curTasks as Record<string, unknown>)
+        .then(() => flushR2Queue(userId, rt))
+        .catch(() => {});
+    }
+    await get().refreshNotes();
+  },
+
+  lockNote: async (id, password) => {
+    const { userId, metadata } = get();
+    if (!userId) return;
+    const enc = new TextEncoder();
+    const hashBuf = await crypto.subtle.digest('SHA-256', enc.encode(password));
+    const lockHash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    const newMeta = await updateNoteMeta(userId, id, { locked: true, lockHash }, { ...metadata });
+    set({ metadata: newMeta });
+    // Remove from session-unlocked set
+    const next = new Set(get().sessionUnlockedIds);
+    next.delete(id);
+    set({ sessionUnlockedIds: next });
+    const { r2Token: rt, storageMode: sm, r2EncryptionKey: ek, tasks: curTasks } = get();
+    if ((sm === 'r2' || sm === 'local+r2') && rt && ek) {
+      enqueueEncryptedMetaAndTasks(userId, ek, newMeta as Record<string, unknown>, curTasks as Record<string, unknown>)
+        .then(() => flushR2Queue(userId, rt))
+        .catch(() => {});
+    }
+    await get().refreshNotes();
+  },
+
+  removeLock: async (id) => {
+    const { userId, metadata } = get();
+    if (!userId) return;
+    const newMeta = await updateNoteMeta(userId, id, { locked: false, lockHash: undefined }, { ...metadata });
+    set({ metadata: newMeta });
+    const next = new Set(get().sessionUnlockedIds);
+    next.delete(id);
+    set({ sessionUnlockedIds: next });
+    const { r2Token: rt, storageMode: sm, r2EncryptionKey: ek, tasks: curTasks } = get();
+    if ((sm === 'r2' || sm === 'local+r2') && rt && ek) {
+      enqueueEncryptedMetaAndTasks(userId, ek, newMeta as Record<string, unknown>, curTasks as Record<string, unknown>)
+        .then(() => flushR2Queue(userId, rt))
+        .catch(() => {});
+    }
+    await get().refreshNotes();
+  },
+
+  sessionUnlock: (id) => {
+    const next = new Set(get().sessionUnlockedIds);
+    next.add(id);
+    set({ sessionUnlockedIds: next });
+  },
+
+  sessionLock: (id) => {
+    const next = new Set(get().sessionUnlockedIds);
+    next.delete(id);
+    set({ sessionUnlockedIds: next });
   },
 
   setNoteStatus: async (id, status) => {
@@ -1636,8 +1710,15 @@ export function selectFilteredNotes(state: NotesState): NoteFile[] {
     );
   }
 
+  // Pinned always float to top, then favorites, then rest
+  const pinned    = list.filter(n => n.isPinned);
+  const notPinned = list.filter(n => !n.isPinned);
   if (activeSection.type === 'all') {
-    list = [...list.filter(n => n.isFavorite), ...list.filter(n => !n.isFavorite)];
+    const favs    = notPinned.filter(n => n.isFavorite);
+    const rest    = notPinned.filter(n => !n.isFavorite);
+    list = [...pinned, ...favs, ...rest];
+  } else {
+    list = [...pinned, ...notPinned];
   }
 
   return list;

@@ -12,6 +12,8 @@ import {
   Image, History, Clock, ChevronRight, ChevronLeft,
   Paperclip, Download, FileText as FileIcon, Loader2,
   Copy, Scissors, Clipboard, AlignLeft,
+  Pin, PinOff, Lock, LockOpen, BookOpen, FileDown, Keyboard,
+  Search, ArrowUp, ArrowDown, Replace,
 } from 'lucide-react';
 import { useNotesStore } from '../lib/store';
 import { cn } from '../lib/utils';
@@ -831,6 +833,334 @@ function ReminderButton({ noteId, hasReminder, reminderTime, reminderStatus }: {
   );
 }
 
+// ─── Find & Replace Panel ─────────────────────────────────────────────────────
+function FindReplacePanel({
+  content,
+  onApply,
+  onClose,
+  textareaRef,
+}: {
+  content: string;
+  onApply: (newContent: string) => void;
+  onClose: () => void;
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+}) {
+  const [find,    setFind]    = useState('');
+  const [replace, setReplace] = useState('');
+  const [idx,     setIdx]     = useState(0);
+  const findInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { findInputRef.current?.focus(); }, []);
+
+  const matches = useMemo(() => {
+    if (!find) return [] as number[];
+    const result: number[] = [];
+    let i = 0;
+    while (i < content.length) {
+      const pos = content.indexOf(find, i);
+      if (pos === -1) break;
+      result.push(pos);
+      i = pos + 1;
+    }
+    return result;
+  }, [content, find]);
+
+  const clampedIdx = matches.length ? Math.min(idx, matches.length - 1) : -1;
+
+  useEffect(() => {
+    if (clampedIdx === -1 || !textareaRef.current) return;
+    const ta = textareaRef.current;
+    ta.focus();
+    ta.setSelectionRange(matches[clampedIdx], matches[clampedIdx] + find.length);
+    ta.scrollTop = (ta.scrollHeight * (matches[clampedIdx] / content.length)) - ta.clientHeight / 2;
+  }, [clampedIdx, matches, find, content, textareaRef]);
+
+  const go = (dir: 1 | -1) => {
+    if (!matches.length) return;
+    setIdx(i => (i + dir + matches.length) % matches.length);
+  };
+
+  const doReplace = () => {
+    if (clampedIdx === -1 || !find) return;
+    const m = matches[clampedIdx];
+    const next = content.slice(0, m) + replace + content.slice(m + find.length);
+    onApply(next);
+    setIdx(i => Math.min(i, matches.length - 2));
+  };
+
+  const doReplaceAll = () => {
+    if (!find) return;
+    onApply(content.split(find).join(replace));
+    setIdx(0);
+  };
+
+  const handleKey = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') { e.preventDefault(); onClose(); }
+    if (e.key === 'Enter')  { e.preventDefault(); e.shiftKey ? go(-1) : go(1); }
+  };
+
+  return (
+    <div
+      className="shrink-0 border-b border-border bg-card/50 px-3 py-2 space-y-2"
+      onKeyDown={handleKey}
+    >
+      <div className="flex items-center gap-2">
+        <Search size={12} className="text-muted-foreground/50 shrink-0" />
+        <input
+          ref={findInputRef}
+          value={find}
+          onChange={e => { setFind(e.target.value); setIdx(0); }}
+          placeholder="Find…"
+          className="flex-1 bg-transparent text-[12px] text-foreground placeholder:text-muted-foreground/40 outline-none"
+        />
+        {find && (
+          <span className="text-[10px] text-muted-foreground/50 tabular-nums shrink-0">
+            {matches.length ? `${clampedIdx + 1}/${matches.length}` : 'no results'}
+          </span>
+        )}
+        <button onClick={() => go(-1)} disabled={!matches.length} title="Previous (Shift+Enter)"
+          className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-muted disabled:opacity-30 transition-colors">
+          <ArrowUp size={11} />
+        </button>
+        <button onClick={() => go(1)} disabled={!matches.length} title="Next (Enter)"
+          className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/60 hover:text-foreground hover:bg-muted disabled:opacity-30 transition-colors">
+          <ArrowDown size={11} />
+        </button>
+        <button onClick={onClose} title="Close (Esc)"
+          className="h-5 w-5 flex items-center justify-center rounded text-muted-foreground/40 hover:text-foreground hover:bg-muted transition-colors">
+          <X size={11} />
+        </button>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <Replace size={12} className="text-muted-foreground/50 shrink-0" />
+        <input
+          value={replace}
+          onChange={e => setReplace(e.target.value)}
+          placeholder="Replace with…"
+          className="flex-1 bg-transparent text-[12px] text-foreground placeholder:text-muted-foreground/40 outline-none"
+        />
+        <button onClick={doReplace} disabled={!matches.length}
+          className="shrink-0 h-5 px-2 rounded text-[10px] border border-border text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 transition-colors">
+          Replace
+        </button>
+        <button onClick={doReplaceAll} disabled={!find}
+          className="shrink-0 h-5 px-2 rounded text-[10px] border border-border text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-30 transition-colors">
+          All
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Reading Mode Overlay ─────────────────────────────────────────────────────
+function ReadingModeOverlay({
+  title,
+  content,
+  onClose,
+}: {
+  title: string;
+  content: string;
+  onClose: () => void;
+}) {
+  const cleanHtml = useMemo(() => {
+    if (!content.trim()) return '';
+    const raw = marked(content);
+    return DOMPurify.sanitize(typeof raw === 'string' ? raw : String(raw));
+  }, [content]);
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  return createPortal(
+    <div className="fixed inset-0 z-[9000] bg-background/95 backdrop-blur-sm flex flex-col">
+      <div className="shrink-0 flex items-center justify-between px-6 py-3 border-b border-border">
+        <div className="flex items-center gap-2">
+          <BookOpen size={14} className="text-primary" />
+          <span className="text-sm font-semibold text-foreground truncate">{title}</span>
+        </div>
+        <button onClick={onClose} title="Exit reading mode (Esc)"
+          className="flex items-center gap-1.5 h-7 px-3 rounded border border-border text-[12px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+          <X size={12} /> Exit
+        </button>
+      </div>
+      <div className="flex-1 overflow-y-auto">
+        <div className="max-w-2xl mx-auto px-6 py-10">
+          {content.trim() ? (
+            <div
+              className="prose dark:prose-invert prose-base max-w-none prose-headings:font-semibold prose-a:text-primary prose-pre:bg-muted prose-pre:border prose-pre:border-border prose-code:text-primary prose-code:bg-primary/10 prose-code:px-1 prose-code:py-0.5 prose-code:rounded"
+              dangerouslySetInnerHTML={{ __html: cleanHtml }}
+            />
+          ) : (
+            <p className="text-muted-foreground/40 italic text-center">Nothing to read yet.</p>
+          )}
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+// ─── Lock Screen ──────────────────────────────────────────────────────────────
+function LockScreen({
+  noteId,
+  lockHash,
+  onUnlock,
+  onRemoveLock,
+}: {
+  noteId: string;
+  lockHash?: string;
+  onUnlock: () => void;
+  onRemoveLock: () => void;
+}) {
+  const [password, setPassword] = useState('');
+  const [error,    setError]    = useState('');
+  const [checking, setChecking] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+
+  const verify = async () => {
+    if (!password) return;
+    setChecking(true);
+    const enc = new TextEncoder();
+    const hashBuf = await crypto.subtle.digest('SHA-256', enc.encode(password));
+    const hash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    setChecking(false);
+    if (hash === lockHash) { setError(''); onUnlock(); }
+    else { setError('Incorrect password'); setPassword(''); inputRef.current?.focus(); }
+  };
+
+  const handleRemove = async () => {
+    if (!password) return;
+    setChecking(true);
+    const enc = new TextEncoder();
+    const hashBuf = await crypto.subtle.digest('SHA-256', enc.encode(password));
+    const hash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+    setChecking(false);
+    if (hash === lockHash) { setError(''); onRemoveLock(); }
+    else { setError('Incorrect password'); }
+  };
+
+  return (
+    <div className="flex-1 flex flex-col items-center justify-center gap-5 bg-background px-6">
+      <div className="flex flex-col items-center gap-3 text-center">
+        <div className="w-14 h-14 rounded-2xl bg-primary/10 border border-primary/20 flex items-center justify-center">
+          <Lock size={24} className="text-primary" strokeWidth={1.5} />
+        </div>
+        <p className="text-sm font-semibold text-foreground">This note is locked</p>
+        <p className="text-[12px] text-muted-foreground/60">Enter the password to view its contents</p>
+      </div>
+
+      <div className="w-full max-w-xs space-y-3">
+        <input
+          ref={inputRef}
+          type="password"
+          value={password}
+          onChange={e => { setPassword(e.target.value); setError(''); }}
+          onKeyDown={e => { if (e.key === 'Enter') verify(); }}
+          placeholder="Password…"
+          className="w-full h-9 rounded-lg border border-border bg-muted px-3 text-[13px] text-foreground placeholder:text-muted-foreground/40 outline-none focus:ring-1 focus:ring-ring"
+        />
+        {error && <p className="text-[11px] text-destructive text-center">{error}</p>}
+        <button onClick={verify} disabled={checking || !password}
+          className="w-full h-9 rounded-lg bg-primary text-primary-foreground text-[13px] font-medium hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-1.5">
+          {checking ? <Loader2 size={13} className="animate-spin" /> : <LockOpen size={13} />}
+          Unlock
+        </button>
+        <button onClick={handleRemove} disabled={checking || !password}
+          className="w-full h-7 rounded-lg border border-border text-[11px] text-muted-foreground hover:text-foreground hover:bg-muted disabled:opacity-50 transition-colors">
+          Remove lock permanently
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── Keyboard Shortcuts Modal ─────────────────────────────────────────────────
+function ShortcutsModal({ onClose }: { onClose: () => void }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [onClose]);
+
+  const sections = [
+    {
+      title: 'Editor',
+      shortcuts: [
+        { keys: ['Ctrl', 'S'],   desc: 'Save note' },
+        { keys: ['Ctrl', 'B'],   desc: 'Bold' },
+        { keys: ['Ctrl', 'I'],   desc: 'Italic' },
+        { keys: ['Ctrl', 'K'],   desc: 'Insert link' },
+        { keys: ['Ctrl', 'F'],   desc: 'Find & Replace' },
+      ],
+    },
+    {
+      title: 'Navigation',
+      shortcuts: [
+        { keys: ['?'],           desc: 'Open shortcuts cheat sheet' },
+        { keys: ['Escape'],      desc: 'Close panels / overlays' },
+      ],
+    },
+    {
+      title: 'Find & Replace',
+      shortcuts: [
+        { keys: ['Enter'],       desc: 'Next match' },
+        { keys: ['Shift', 'Enter'], desc: 'Previous match' },
+        { keys: ['Escape'],      desc: 'Close find bar' },
+      ],
+    },
+  ];
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[9500] flex items-center justify-center bg-black/40 backdrop-blur-sm"
+      onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}
+    >
+      <div className="w-full max-w-md mx-4 bg-popover border border-border rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+        <div className="flex items-center justify-between px-5 py-3 border-b border-border">
+          <div className="flex items-center gap-2">
+            <Keyboard size={14} className="text-primary" />
+            <span className="text-sm font-semibold text-foreground">Keyboard Shortcuts</span>
+          </div>
+          <button onClick={onClose} className="text-muted-foreground/50 hover:text-foreground transition-colors">
+            <X size={14} />
+          </button>
+        </div>
+        <div className="px-5 py-4 space-y-5 max-h-[70vh] overflow-y-auto">
+          {sections.map(section => (
+            <div key={section.title}>
+              <p className="text-[10px] uppercase tracking-widest text-muted-foreground/50 font-semibold mb-2">{section.title}</p>
+              <div className="space-y-1">
+                {section.shortcuts.map((s, i) => (
+                  <div key={i} className="flex items-center justify-between py-1">
+                    <span className="text-[12px] text-foreground/80">{s.desc}</span>
+                    <div className="flex items-center gap-1">
+                      {s.keys.map((k, ki) => (
+                        <span key={ki} className="px-1.5 py-0.5 rounded bg-muted border border-border text-[10px] font-mono text-foreground/70">
+                          {k}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="px-5 py-2 border-t border-border">
+          <p className="text-[10px] text-muted-foreground/40 text-center">Press <kbd className="px-1 py-0.5 rounded bg-muted border border-border text-[9px] font-mono">?</kbd> anywhere outside an input to open this</p>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
 // ─── Main Editor ─────────────────────────────────────────────────────────────
 export function Editor({ onBack }: { onBack?: () => void }) {
   // Stable primitive selectors — each returns a primitive or stable reference
@@ -845,27 +1175,38 @@ export function Editor({ onBack }: { onBack?: () => void }) {
   const saveActiveNote = useNotesStore(s => s.saveActiveNote);
   const renameNote     = useNotesStore(s => s.renameNote);
   const toggleFavorite = useNotesStore(s => s.toggleFavorite);
+  const togglePinned   = useNotesStore(s => s.togglePinned);
+  const lockNote       = useNotesStore(s => s.lockNote);
+  const removeLock     = useNotesStore(s => s.removeLock);
+  const sessionUnlock  = useNotesStore(s => s.sessionUnlock);
   const setNoteStatus  = useNotesStore(s => s.setNoteStatus);
   const setTags        = useNotesStore(s => s.setTags);
   const trashNote      = useNotesStore(s => s.trashNote);
   const restoreNote    = useNotesStore(s => s.restoreNote);
   const toggleTask     = useNotesStore(s => s.toggleTask);
 
-  const userId        = useNotesStore(s => s.userId);
-  const encryptionKey = useNotesStore(s => s.encryptionKey);
-  const vaultHandle   = useNotesStore(s => s.vaultHandle);
+  const userId             = useNotesStore(s => s.userId);
+  const encryptionKey      = useNotesStore(s => s.encryptionKey);
+  const vaultHandle        = useNotesStore(s => s.vaultHandle);
+  const sessionUnlockedIds = useNotesStore(s => s.sessionUnlockedIds);
 
-  const [showPreview,  setShowPreview]  = useState(false);
-  const [showHistory,  setShowHistory]  = useState(false);
-  const [ctxMenu,      setCtxMenu]      = useState<CtxPos | null>(null);
-  const [selectionBar, setSelectionBar] = useState<{ x: number; y: number } | null>(null);
-  const [dragOver,     setDragOver]     = useState(false);
-  const [titleValue,   setTitleValue]   = useState('');
+  const [showPreview,   setShowPreview]   = useState(false);
+  const [showHistory,   setShowHistory]   = useState(false);
+  const [showFind,      setShowFind]      = useState(false);
+  const [showReading,   setShowReading]   = useState(false);
+  const [showShortcuts, setShowShortcuts] = useState(false);
+  const [showLockModal, setShowLockModal] = useState(false);
+  const [lockPassword,  setLockPassword]  = useState('');
+  const [lockError,     setLockError]     = useState('');
+  const [ctxMenu,       setCtxMenu]       = useState<CtxPos | null>(null);
+  const [selectionBar,  setSelectionBar]  = useState<{ x: number; y: number } | null>(null);
+  const [dragOver,      setDragOver]      = useState(false);
+  const [titleValue,    setTitleValue]    = useState('');
   const titleRef        = useRef<HTMLInputElement>(null);
   const textareaRef     = useRef<HTMLTextAreaElement>(null);
   const saveTimerRef    = useRef<ReturnType<typeof setTimeout>>();
   // key bumped on drop so AttachmentStrip re-mounts and reloads its file list
-  const [dropKey,      setDropKey]      = useState(0);
+  const [dropKey,       setDropKey]       = useState(0);
 
   // Compute activeNote locally — notes is a stable ref until refreshNotes() replaces it
   const activeNote = useMemo(
@@ -873,9 +1214,34 @@ export function Editor({ onBack }: { onBack?: () => void }) {
     [notes, activeNoteId]
   );
 
-  const isTrash    = activeSection.type === 'trash';
-  const isArchive  = activeSection.type === 'archive';
-  const isReadOnly = isTrash;
+  const isTrash         = activeSection.type === 'trash';
+  const isArchive       = activeSection.type === 'archive';
+  const isReadOnly      = isTrash;
+  const isSessionLocked = (activeNote?.locked && !sessionUnlockedIds.has(activeNote?.id ?? '')) ?? false;
+
+  // Export helpers
+  const handleExportMd = useCallback(() => {
+    if (!activeNote || !activeContent) return;
+    const blob = new Blob([activeContent], { type: 'text/markdown' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = `${activeNote.title || 'note'}.md`; a.click();
+    URL.revokeObjectURL(url);
+  }, [activeNote, activeContent]);
+
+  const handleCopyContent = useCallback(() => {
+    if (!activeContent) return;
+    navigator.clipboard.writeText(activeContent).catch(() => {});
+  }, [activeContent]);
+
+  // Lock modal submit
+  const handleLockSubmit = useCallback(async () => {
+    if (!lockPassword.trim() || !activeNoteId) return;
+    await lockNote(activeNoteId, lockPassword);
+    setLockPassword('');
+    setLockError('');
+    setShowLockModal(false);
+  }, [lockPassword, activeNoteId, lockNote]);
 
   useEffect(() => {
     if (activeNote) setTitleValue(activeNote.title);
@@ -913,10 +1279,19 @@ export function Editor({ onBack }: { onBack?: () => void }) {
     setDropKey(k => k + 1); // force AttachmentStrip to re-mount + reload
   }, [vaultHandle, activeNoteId, isReadOnly, encryptionKey, handleContentChange]);
 
-  // Ctrl+S manual save
+  // Ctrl+S manual save / Ctrl+F find / ? shortcuts
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveActiveNote(); }
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') { e.preventDefault(); saveActiveNote(); return; }
+      if ((e.ctrlKey || e.metaKey) && e.key === 'f') { e.preventDefault(); setShowFind(p => !p); return; }
+      // '?' shortcut — only when not typing in an input/textarea
+      if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
+        const tag = (e.target as HTMLElement).tagName;
+        if (tag !== 'INPUT' && tag !== 'TEXTAREA') {
+          e.preventDefault();
+          setShowShortcuts(p => !p);
+        }
+      }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
@@ -1098,6 +1473,52 @@ export function Editor({ onBack }: { onBack?: () => void }) {
               </button>
             )}
 
+            {/* Pin */}
+            {!isTrash && !isArchive && (
+              <button onClick={() => activeNote && togglePinned(activeNote.id)}
+                title={activeNote?.isPinned ? "Unpin" : "Pin to top"}
+                className={cn("h-6 w-6 rounded flex items-center justify-center transition-colors border border-border",
+                  activeNote?.isPinned ? "bg-muted text-primary border-primary/30" : "text-muted-foreground/40 hover:text-foreground hover:bg-muted")}>
+                {activeNote?.isPinned ? <PinOff size={11} /> : <Pin size={11} />}
+              </button>
+            )}
+
+            {/* Lock / unlock */}
+            {!isTrash && !isArchive && (
+              <button
+                onClick={() => {
+                  if (activeNote?.locked) {
+                    // If session-unlocked, re-lock; otherwise already locked (lock screen handles it)
+                    if (!isSessionLocked && activeNote.id) {
+                      useNotesStore.getState().sessionLock(activeNote.id);
+                    }
+                  } else {
+                    setLockPassword(''); setLockError(''); setShowLockModal(true);
+                  }
+                }}
+                title={activeNote?.locked ? (isSessionLocked ? "Note is locked" : "Lock now") : "Lock note"}
+                className={cn("h-6 w-6 rounded flex items-center justify-center transition-colors border border-border",
+                  activeNote?.locked ? "bg-muted text-amber-500 border-amber-500/30" : "text-muted-foreground/40 hover:text-foreground hover:bg-muted")}>
+                {activeNote?.locked ? <Lock size={11} /> : <LockOpen size={11} />}
+              </button>
+            )}
+
+            {/* Export */}
+            {!isSessionLocked && (
+              <button onClick={handleExportMd} title="Export as .md"
+                className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground/40 hover:text-foreground hover:bg-muted transition-colors border border-border">
+                <FileDown size={11} />
+              </button>
+            )}
+
+            {/* Reading mode */}
+            {!isSessionLocked && (
+              <button onClick={() => setShowReading(true)} title="Reading mode"
+                className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground/40 hover:text-foreground hover:bg-muted transition-colors border border-border">
+                <BookOpen size={11} />
+              </button>
+            )}
+
             <button onClick={() => setShowHistory(p => !p)} title="Version history"
               className={cn("h-6 w-6 rounded flex items-center justify-center transition-colors border border-border",
                 showHistory ? "bg-muted text-foreground" : "text-muted-foreground/40 hover:text-foreground hover:bg-muted")}>
@@ -1108,6 +1529,21 @@ export function Editor({ onBack }: { onBack?: () => void }) {
               className={cn("h-6 w-6 rounded flex items-center justify-center transition-colors border border-border",
                 showPreview ? "bg-muted text-foreground" : "text-muted-foreground/40 hover:text-foreground hover:bg-muted")}>
               {showPreview ? <EyeOff size={11} /> : <Eye size={11} />}
+            </button>
+
+            {/* Find & Replace */}
+            {!isSessionLocked && (
+              <button onClick={() => setShowFind(p => !p)} title="Find & Replace (Ctrl+F)"
+                className={cn("h-6 w-6 rounded flex items-center justify-center transition-colors border border-border",
+                  showFind ? "bg-muted text-foreground" : "text-muted-foreground/40 hover:text-foreground hover:bg-muted")}>
+                <Search size={11} />
+              </button>
+            )}
+
+            {/* Shortcuts */}
+            <button onClick={() => setShowShortcuts(true)} title="Keyboard shortcuts (?)"
+              className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground/40 hover:text-foreground hover:bg-muted transition-colors border border-border">
+              <Keyboard size={11} />
             </button>
 
             <button onClick={saveActiveNote} disabled={!isDirty || isReadOnly}
@@ -1145,8 +1581,18 @@ export function Editor({ onBack }: { onBack?: () => void }) {
       </header>
 
       {/* ── Markdown Toolbar ── */}
-      {!isReadOnly && (
+      {!isReadOnly && !isSessionLocked && (
         <MarkdownToolbar textareaRef={textareaRef} onChange={handleContentChange} />
+      )}
+
+      {/* ── Find & Replace Panel ── */}
+      {showFind && !isReadOnly && !isSessionLocked && (
+        <FindReplacePanel
+          content={activeContent}
+          onApply={handleContentChange}
+          onClose={() => setShowFind(false)}
+          textareaRef={textareaRef}
+        />
       )}
 
       {/* ── Attachment Strip ── */}
@@ -1177,61 +1623,77 @@ export function Editor({ onBack }: { onBack?: () => void }) {
 
       {/* ── Editor / Preview / History ── */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Writing area (hidden when preview-only on small screens) */}
-        <div className={cn("flex-1 flex flex-col min-w-0", showPreview && "hidden lg:flex lg:w-1/2 lg:flex-none")}>
-          <textarea
-            ref={textareaRef}
-            value={activeContent}
-            onChange={e => handleContentChange(e.target.value)}
-            disabled={isReadOnly}
-            placeholder={isReadOnly ? "(Note is in trash — restore to edit)" : "Start writing in Markdown..."}
-            spellCheck={true}
-            onMouseUp={!isReadOnly ? handleTextareaMouseUp : undefined}
-            onKeyUp={!isReadOnly ? handleTextareaKeyUp : undefined}
-            onContextMenu={!isReadOnly ? e => { e.preventDefault(); setSelectionBar(null); setCtxMenu({ x: e.clientX, y: e.clientY }); } : undefined}
-            className="flex-1 w-full bg-transparent px-6 py-4 resize-none outline-none font-mono text-[13px] leading-relaxed text-foreground placeholder:text-muted-foreground/30 disabled:opacity-50"
-          />
-          {/* Word count */}
-          {!isReadOnly && (
-            <div className="shrink-0 flex items-center justify-end gap-3 px-4 py-1 border-t border-border/40 bg-card/10">
-              <span className="text-[10px] text-muted-foreground/40 tabular-nums">
-                {wordCount.words.toLocaleString()} {wordCount.words === 1 ? 'word' : 'words'}
-              </span>
-              <span className="text-[10px] text-muted-foreground/30 tabular-nums">
-                {wordCount.chars.toLocaleString()} chars
-              </span>
-            </div>
-          )}
-        </div>
-
-        {showPreview && (
-          <div className="flex-1 border-l border-border bg-card/10 overflow-y-auto px-6 py-4">
-            {activeContent.trim() ? (
-              <div
-                className="prose dark:prose-invert prose-sm max-w-none prose-headings:font-semibold prose-a:text-primary prose-pre:bg-muted prose-pre:border prose-pre:border-border prose-code:text-primary prose-code:bg-primary/10 prose-code:px-1 prose-code:py-0.5 prose-code:rounded [&_input[type=checkbox]]:accent-[hsl(var(--primary))] [&_input[type=checkbox]]:cursor-pointer"
-                onClick={!isReadOnly ? handlePreviewClick : undefined}
-                dangerouslySetInnerHTML={{ __html: cleanHtml }}
-              />
-            ) : (
-              <p className="text-muted-foreground/30 italic text-sm">Preview will appear here...</p>
-            )}
-          </div>
-        )}
-
-        {/* Version history side panel */}
-        {showHistory && userId && (
-          <VersionHistory
+        {/* Lock screen — replaces editor when note is locked */}
+        {isSessionLocked ? (
+          <LockScreen
             noteId={activeNoteId}
-            userId={userId}
-            encryptionKey={encryptionKey}
-            onRestore={content => { handleContentChange(content); saveActiveNote(); }}
-            onClose={() => setShowHistory(false)}
+            lockHash={activeNote.lockHash}
+            onUnlock={() => sessionUnlock(activeNoteId)}
+            onRemoveLock={() => removeLock(activeNoteId)}
           />
+        ) : (
+          <>
+            {/* Writing area (hidden when preview-only on small screens) */}
+            <div className={cn("flex-1 flex flex-col min-w-0", showPreview && "hidden lg:flex lg:w-1/2 lg:flex-none")}>
+              <textarea
+                ref={textareaRef}
+                value={activeContent}
+                onChange={e => handleContentChange(e.target.value)}
+                disabled={isReadOnly}
+                placeholder={isReadOnly ? "(Note is in trash — restore to edit)" : "Start writing in Markdown..."}
+                spellCheck={true}
+                onMouseUp={!isReadOnly ? handleTextareaMouseUp : undefined}
+                onKeyUp={!isReadOnly ? handleTextareaKeyUp : undefined}
+                onContextMenu={!isReadOnly ? e => { e.preventDefault(); setSelectionBar(null); setCtxMenu({ x: e.clientX, y: e.clientY }); } : undefined}
+                className="flex-1 w-full bg-transparent px-6 py-4 resize-none outline-none font-mono text-[13px] leading-relaxed text-foreground placeholder:text-muted-foreground/30 disabled:opacity-50"
+              />
+              {/* Word count + copy action */}
+              {!isReadOnly && (
+                <div className="shrink-0 flex items-center justify-end gap-3 px-4 py-1 border-t border-border/40 bg-card/10">
+                  <button onClick={handleCopyContent} title="Copy note as Markdown"
+                    className="flex items-center gap-1 text-[10px] text-muted-foreground/30 hover:text-muted-foreground transition-colors">
+                    <Copy size={9} /> Copy
+                  </button>
+                  <span className="text-[10px] text-muted-foreground/40 tabular-nums">
+                    {wordCount.words.toLocaleString()} {wordCount.words === 1 ? 'word' : 'words'}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground/30 tabular-nums">
+                    {wordCount.chars.toLocaleString()} chars
+                  </span>
+                </div>
+              )}
+            </div>
+
+            {showPreview && (
+              <div className="flex-1 border-l border-border bg-card/10 overflow-y-auto px-6 py-4">
+                {activeContent.trim() ? (
+                  <div
+                    className="prose dark:prose-invert prose-sm max-w-none prose-headings:font-semibold prose-a:text-primary prose-pre:bg-muted prose-pre:border prose-pre:border-border prose-code:text-primary prose-code:bg-primary/10 prose-code:px-1 prose-code:py-0.5 prose-code:rounded [&_input[type=checkbox]]:accent-[hsl(var(--primary))] [&_input[type=checkbox]]:cursor-pointer"
+                    onClick={!isReadOnly ? handlePreviewClick : undefined}
+                    dangerouslySetInnerHTML={{ __html: cleanHtml }}
+                  />
+                ) : (
+                  <p className="text-muted-foreground/30 italic text-sm">Preview will appear here...</p>
+                )}
+              </div>
+            )}
+
+            {/* Version history side panel */}
+            {showHistory && userId && (
+              <VersionHistory
+                noteId={activeNoteId}
+                userId={userId}
+                encryptionKey={encryptionKey}
+                onRestore={content => { handleContentChange(content); saveActiveNote(); }}
+                onClose={() => setShowHistory(false)}
+              />
+            )}
+          </>
         )}
       </div>
 
       {/* Selection floating toolbar */}
-      {selectionBar && !isReadOnly && (
+      {selectionBar && !isReadOnly && !isSessionLocked && (
         <SelectionFloatingToolbar
           textareaRef={textareaRef}
           onChange={handleContentChange}
@@ -1248,6 +1710,57 @@ export function Editor({ onBack }: { onBack?: () => void }) {
           textareaRef={textareaRef}
           onChange={handleContentChange}
         />
+      )}
+
+      {/* ── Reading mode overlay ── */}
+      {showReading && (
+        <ReadingModeOverlay
+          title={activeNote.title}
+          content={activeContent}
+          onClose={() => setShowReading(false)}
+        />
+      )}
+
+      {/* ── Shortcuts modal ── */}
+      {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
+
+      {/* ── Set lock password modal ── */}
+      {showLockModal && createPortal(
+        <div
+          className="fixed inset-0 z-[9200] flex items-center justify-center bg-black/40 backdrop-blur-sm"
+          onMouseDown={e => { if (e.target === e.currentTarget) { setShowLockModal(false); setLockPassword(''); setLockError(''); } }}
+        >
+          <div className="w-full max-w-xs mx-4 bg-popover border border-border rounded-2xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150 p-5 space-y-4">
+            <div className="flex items-center gap-2">
+              <Lock size={14} className="text-primary" />
+              <p className="text-sm font-semibold text-foreground">Lock this note</p>
+            </div>
+            <p className="text-[11px] text-muted-foreground/70 leading-relaxed">
+              Set a password to lock this note. The vault's AES-256 encryption still protects the content — this lock adds an extra access gate within the app.
+            </p>
+            <input
+              type="password"
+              value={lockPassword}
+              onChange={e => { setLockPassword(e.target.value); setLockError(''); }}
+              onKeyDown={e => { if (e.key === 'Enter') handleLockSubmit(); if (e.key === 'Escape') { setShowLockModal(false); setLockPassword(''); } }}
+              placeholder="Choose a password…"
+              autoFocus
+              className="w-full h-9 rounded-lg border border-border bg-muted px-3 text-[13px] text-foreground placeholder:text-muted-foreground/40 outline-none focus:ring-1 focus:ring-ring"
+            />
+            {lockError && <p className="text-[11px] text-destructive">{lockError}</p>}
+            <div className="flex gap-2">
+              <button onClick={handleLockSubmit} disabled={!lockPassword.trim()}
+                className="flex-1 h-9 rounded-lg bg-primary text-primary-foreground text-[13px] font-medium hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-1.5">
+                <Lock size={13} /> Lock note
+              </button>
+              <button onClick={() => { setShowLockModal(false); setLockPassword(''); setLockError(''); }}
+                className="h-9 px-4 rounded-lg border border-border text-[13px] text-muted-foreground hover:text-foreground hover:bg-muted transition-colors">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>,
+        document.body
       )}
     </div>
   );

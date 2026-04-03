@@ -7,6 +7,9 @@ export type RemoteStatus = 'neverSynced' | 'pendingUpload' | 'synced';
 
 export interface NoteMetadata {
   isFavorite: boolean;
+  isPinned: boolean;
+  locked: boolean;
+  lockHash?: string;
   status: NoteStatus;
   tags: string[];
   hasReminder: boolean;
@@ -20,6 +23,8 @@ export type MetadataMap = Record<string, NoteMetadata>;
 
 export const DEFAULT_META: NoteMetadata = {
   isFavorite: false,
+  isPinned: false,
+  locked: false,
   status: 'active',
   tags: [],
   hasReminder: false,

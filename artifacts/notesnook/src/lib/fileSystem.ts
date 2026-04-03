@@ -11,6 +11,9 @@ export interface NoteFile {
   lastModified: number;
   // Merged from metadata
   isFavorite: boolean;
+  isPinned: boolean;
+  locked: boolean;
+  lockHash?: string;
   status: NoteStatus;
   tags: string[];
   hasReminder: boolean;
