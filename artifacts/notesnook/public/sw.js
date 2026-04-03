@@ -1,5 +1,5 @@
 // Ballpoint Service Worker — offline-first + notification support
-const CACHE_NAME = 'ballpoint-v3';
+const CACHE_NAME = 'ballpoint-v5';
 const STATIC_ASSETS = [
   '/',
   '/manifest.webmanifest',
@@ -58,18 +58,20 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // Static assets (JS, CSS, images, fonts, manifests): cache-first with background update
-  const isStatic = /\.(js|mjs|css|png|jpg|jpeg|svg|ico|woff|woff2|ttf|webmanifest|webp)$/.test(url.pathname);
-  if (isStatic) {
+  // Never intercept Vite HMR timestamp-busted requests
+  if (url.searchParams.has('t')) return;
+
+  // JS, CSS, images, fonts — network-first so updates always ship on next load.
+  // Falls back to cache only when offline.
+  const isAsset = /\.(js|mjs|css|png|jpg|jpeg|svg|ico|woff|woff2|ttf|webmanifest|webp)$/.test(url.pathname);
+  if (isAsset) {
     event.respondWith(
-      caches.match(request).then(cached => {
-        const fetchAndCache = fetch(request).then(res => {
+      fetch(request)
+        .then(res => {
           if (res.ok) caches.open(CACHE_NAME).then(c => c.put(request, res.clone()));
           return res;
-        });
-        // Return cached immediately, update in background (stale-while-revalidate)
-        return cached ?? fetchAndCache;
-      })
+        })
+        .catch(() => caches.match(request))
     );
   }
 });
