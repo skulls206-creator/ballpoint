@@ -36,6 +36,7 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
 
   const activeSection  = useNotesStore(s => s.activeSection);
   const vaultHandle    = useNotesStore(s => s.vaultHandle);
+  const proxyVault     = useNotesStore(s => s.proxyVault);
   const userId         = useNotesStore(s => s.userId);
   const theme          = useNotesStore(s => s.theme);
   const accentColor    = useNotesStore(s => s.accentColor);
@@ -273,7 +274,7 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
             </div>
 
             {/* Storage usage */}
-            {vaultHandle && (
+            {(vaultHandle || proxyVault !== null) && (
               <div>
                 <div className="flex items-center justify-between mb-1.5">
                   <p className="text-[9px] uppercase tracking-widest text-sidebar-foreground/35 font-semibold">Storage</p>
@@ -448,7 +449,7 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
       )}
 
       {/* New note + search */}
-      {vaultHandle && (
+      {(vaultHandle || proxyVault !== null) && (
         <div className="px-2 py-2 border-b border-sidebar-border flex gap-1">
           <button onClick={() => { createNewNote(); onMobileClose?.(); }}
             className="flex-1 flex items-center justify-center gap-1 px-2 py-2 md:py-1 rounded-md bg-primary text-primary-foreground text-[13px] md:text-[11px] font-medium hover:opacity-90 active:opacity-80 transition-opacity">

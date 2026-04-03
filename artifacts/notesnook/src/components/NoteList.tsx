@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import {
   Star, Trash2, Edit2, Archive, RotateCcw,
-  Trash, FileText, Bell, Copy, ExternalLink, Menu,
+  Trash, FileText, Bell, Copy, ExternalLink, Menu, Plus,
   Cloud, CloudOff, UploadCloud,
 } from 'lucide-react';
 import { useNotesStore, selectFilteredNotes, isTaskSection } from '../lib/store';
@@ -229,7 +229,18 @@ export function NoteList({ onOpenSidebar, onNoteOpen }: { onOpenSidebar?: () => 
             </button>
             <span className="text-[12px] md:text-[11px] font-semibold text-foreground/60 uppercase tracking-wider">{sectionTitle}</span>
           </div>
-          <span className="text-[10px] text-muted-foreground tabular-nums">{filteredNotes.length}</span>
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] text-muted-foreground tabular-nums">{filteredNotes.length}</span>
+            {!inTrash && !inArchive && (
+              <button
+                onClick={() => createNewNote()}
+                title="New note (Ctrl+N)"
+                className="ml-1 w-7 h-7 md:w-6 md:h-6 flex items-center justify-center rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 active:scale-95 transition-all shadow-sm"
+              >
+                <Plus size={15} />
+              </button>
+            )}
+          </div>
         </div>
         <div className="relative">
           <input
@@ -257,7 +268,12 @@ export function NoteList({ onOpenSidebar, onNoteOpen }: { onOpenSidebar?: () => 
               {searchQuery ? 'No matching notes' : inTrash ? 'Trash is empty' : inArchive ? 'No archived notes' : 'No notes yet'}
             </p>
             {!searchQuery && !inTrash && !inArchive && (
-              <p className="text-[10px] mt-1 opacity-60">Tap to open · Hold for options</p>
+              <button
+                onClick={() => createNewNote()}
+                className="mt-3 flex items-center gap-1.5 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-[12px] font-medium hover:bg-primary/90 active:scale-95 transition-all shadow-sm"
+              >
+                <Plus size={14} /> New Note
+              </button>
             )}
           </div>
         ) : (
