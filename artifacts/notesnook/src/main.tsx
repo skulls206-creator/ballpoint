@@ -113,9 +113,12 @@ async function checkReminders() {
 
   // ── Task due-date notifications ───────────────────────────────────────────
   for (const task of Object.values(state.tasks)) {
-    if (task.completed || !task.dueDate || firedTaskNotifs.has(task.id)) continue;
+    if (task.completed || !task.dueDate) continue;
+    // Key on taskId+dueDate so changing the due date re-arms the notification
+    const notifKey = `${task.id}::${task.dueDate}`;
+    if (firedTaskNotifs.has(notifKey)) continue;
     if (now >= new Date(task.dueDate).getTime()) {
-      firedTaskNotifs.add(task.id);
+      firedTaskNotifs.add(notifKey);
       await fireNotification(
         `Task due: ${task.text}`,
         `From note: ${task.noteTitle}`,

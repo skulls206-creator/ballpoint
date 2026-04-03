@@ -8,13 +8,23 @@ import { useNotesStore } from '../lib/store';
 import { selectTasksByView, selectTaskCounts, Task, TaskView } from '../lib/tasks';
 import { cn } from '../lib/utils';
 
+// Convert a Date to the "YYYY-MM-DDTHH:mm" format that datetime-local inputs
+// expect (they use LOCAL time, not UTC).
+function toLocalInputValue(d: Date): string {
+  const offset = d.getTimezoneOffset() * 60_000;
+  return new Date(d.getTime() - offset).toISOString().slice(0, 16);
+}
+
 // ─── Due Date Popover ─────────────────────────────────────────────────────────
 function DueDatePopover({
   task,
   onClose,
 }: { task: Task; onClose: () => void }) {
   const setTaskDueDate = useNotesStore(s => s.setTaskDueDate);
-  const [value, setValue] = useState(task.dueDate ? task.dueDate.slice(0, 16) : '');
+  // Use local-time string so the picker shows the right time regardless of timezone
+  const [value, setValue] = useState(() =>
+    task.dueDate ? toLocalInputValue(new Date(task.dueDate)) : ''
+  );
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -26,6 +36,7 @@ function DueDatePopover({
   }, [onClose]);
 
   const save = () => {
+    // `new Date(value)` treats the local-time string as local time, then toISOString() → UTC ✓
     setTaskDueDate(task.id, value ? new Date(value).toISOString() : null);
     onClose();
   };
@@ -39,12 +50,12 @@ function DueDatePopover({
     const d = new Date();
     d.setDate(d.getDate() + offsetDays);
     d.setHours(hour, 0, 0, 0);
-    setValue(d.toISOString().slice(0, 16));
+    setValue(toLocalInputValue(d));
   };
 
   return (
     <div ref={ref}
-      className="absolute right-0 top-7 z-[200] w-60 bg-popover border border-popover-border rounded-xl shadow-xl p-3 space-y-2 animate-in fade-in zoom-in-95 duration-100">
+      className="absolute left-0 top-7 z-[200] w-60 bg-popover border border-popover-border rounded-xl shadow-xl p-3 space-y-2 animate-in fade-in zoom-in-95 duration-100">
       <p className="text-[11px] font-medium text-foreground">Set due date & time</p>
 
       {/* Quick picks */}
@@ -64,7 +75,7 @@ function DueDatePopover({
       <input
         type="datetime-local"
         value={value}
-        min={new Date().toISOString().slice(0, 16)}
+        min={toLocalInputValue(new Date())}
         onChange={e => setValue(e.target.value)}
         className="w-full text-[11px] bg-muted border border-border rounded px-2 py-1 outline-none focus:ring-1 focus:ring-ring"
         autoFocus
@@ -184,7 +195,9 @@ export function TaskList({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
   const activeSection  = useNotesStore(s => s.activeSection);
   const tasks          = useNotesStore(s => s.tasks);
   const vaultHandle    = useNotesStore(s => s.vaultHandle);
+  const proxyVault     = useNotesStore(s => s.proxyVault);
   const createTaskNote = useNotesStore(s => s.createTaskNote);
+  const hasVault       = !!(vaultHandle || proxyVault);
 
   const view = (activeSection.type.replace('tasks-', '') as TaskView);
 
@@ -227,7 +240,7 @@ export function TaskList({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
       </div>
 
       {/* Add task button */}
-      {vaultHandle && view !== 'done' && (
+      {hasVault && view !== 'done' && (
         <div className="px-2 py-1.5 border-b border-border/40 shrink-0">
           <button
             onClick={() => createTaskNote()}
@@ -244,7 +257,7 @@ export function TaskList({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
           <div className="flex flex-col items-center justify-center h-full text-muted-foreground/40 px-4 text-center">
             <ListTodo size={28} className="mb-2 opacity-30" />
             <p className="text-[11px]">{meta.empty}</p>
-            {!vaultHandle && (
+            {!hasVault && (
               <p className="text-[10px] mt-1 opacity-60">Open a vault to see tasks</p>
             )}
           </div>

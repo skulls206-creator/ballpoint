@@ -13,7 +13,7 @@ import {
   Paperclip, Download, FileText as FileIcon, Loader2,
   Copy, Scissors, Clipboard, AlignLeft,
   Pin, PinOff, Lock, LockOpen, BookOpen, FileDown, Keyboard,
-  Search, ArrowUp, ArrowDown, Replace,
+  Search, ArrowUp, ArrowDown, Replace, MoreHorizontal,
 } from 'lucide-react';
 import { useNotesStore } from '../lib/store';
 import { cn } from '../lib/utils';
@@ -22,6 +22,14 @@ import {
   writeAttachment, readAttachment, listAttachments, deleteAttachment,
   AttachmentInfo, isImageMime, formatBytes,
 } from '../lib/attachments';
+
+// ─── Shared helpers ───────────────────────────────────────────────────────────
+/** Convert a UTC ISO string → local "YYYY-MM-DDTHH:mm" for datetime-local inputs */
+function toLocalInputVal(iso: string): string {
+  const d = new Date(iso);
+  const offset = d.getTimezoneOffset() * 60_000;
+  return new Date(d.getTime() - offset).toISOString().slice(0, 16);
+}
 
 // ─── Markdown Toolbar ─────────────────────────────────────────────────────────
 type WrapStyle = { prefix: string; suffix?: string; block?: boolean; line?: boolean; placeholder?: string };
@@ -756,7 +764,7 @@ function ReminderButton({ noteId, hasReminder, reminderTime, reminderStatus }: {
   const popoverRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (reminderTime) setValue(reminderTime.slice(0, 16));
+    if (reminderTime) setValue(toLocalInputVal(reminderTime));
   }, [reminderTime]);
 
   useEffect(() => {
@@ -796,7 +804,7 @@ function ReminderButton({ noteId, hasReminder, reminderTime, reminderStatus }: {
           <input
             type="datetime-local"
             value={value}
-            min={new Date().toISOString().slice(0, 16)}
+            min={toLocalInputVal(new Date().toISOString())}
             onChange={e => setValue(e.target.value)}
             className="w-full text-[11px] bg-muted border border-border rounded px-2 py-1 outline-none focus:ring-1 focus:ring-ring"
           />
@@ -1189,22 +1197,28 @@ export function Editor({ onBack }: { onBack?: () => void }) {
   const encryptionKey      = useNotesStore(s => s.encryptionKey);
   const vaultHandle        = useNotesStore(s => s.vaultHandle);
   const sessionUnlockedIds = useNotesStore(s => s.sessionUnlockedIds);
+  const setReminder        = useNotesStore(s => s.setReminder);
 
-  const [showPreview,   setShowPreview]   = useState(false);
-  const [showHistory,   setShowHistory]   = useState(false);
-  const [showFind,      setShowFind]      = useState(false);
-  const [showReading,   setShowReading]   = useState(false);
-  const [showShortcuts, setShowShortcuts] = useState(false);
-  const [showLockModal, setShowLockModal] = useState(false);
-  const [lockPassword,  setLockPassword]  = useState('');
-  const [lockError,     setLockError]     = useState('');
-  const [ctxMenu,       setCtxMenu]       = useState<CtxPos | null>(null);
-  const [selectionBar,  setSelectionBar]  = useState<{ x: number; y: number } | null>(null);
-  const [dragOver,      setDragOver]      = useState(false);
-  const [titleValue,    setTitleValue]    = useState('');
-  const titleRef        = useRef<HTMLInputElement>(null);
-  const textareaRef     = useRef<HTMLTextAreaElement>(null);
-  const saveTimerRef    = useRef<ReturnType<typeof setTimeout>>();
+  const [showPreview,        setShowPreview]        = useState(false);
+  const [showHistory,        setShowHistory]        = useState(false);
+  const [showFind,           setShowFind]           = useState(false);
+  const [showReading,        setShowReading]        = useState(false);
+  const [showShortcuts,      setShowShortcuts]      = useState(false);
+  const [showLockModal,      setShowLockModal]      = useState(false);
+  const [lockPassword,       setLockPassword]       = useState('');
+  const [lockError,          setLockError]          = useState('');
+  const [ctxMenu,            setCtxMenu]            = useState<CtxPos | null>(null);
+  const [selectionBar,       setSelectionBar]       = useState<{ x: number; y: number } | null>(null);
+  const [dragOver,           setDragOver]           = useState(false);
+  const [titleValue,         setTitleValue]         = useState('');
+  // Mobile overflow menu
+  const [showMoreMenu,       setShowMoreMenu]       = useState(false);
+  const [showMobileReminder, setShowMobileReminder] = useState(false);
+  const [mobileReminderVal,  setMobileReminderVal]  = useState('');
+  const moreMenuRef          = useRef<HTMLDivElement>(null);
+  const titleRef             = useRef<HTMLInputElement>(null);
+  const textareaRef          = useRef<HTMLTextAreaElement>(null);
+  const saveTimerRef         = useRef<ReturnType<typeof setTimeout>>();
   // key bumped on drop so AttachmentStrip re-mounts and reloads its file list
   const [dropKey,       setDropKey]       = useState(0);
 
@@ -1246,6 +1260,24 @@ export function Editor({ onBack }: { onBack?: () => void }) {
   useEffect(() => {
     if (activeNote) setTitleValue(activeNote.title);
   }, [activeNoteId, activeNote?.title]);
+
+  // Close mobile more-menu on outside click
+  useEffect(() => {
+    if (!showMoreMenu) return;
+    const handler = (e: MouseEvent) => {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
+        setShowMoreMenu(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [showMoreMenu]);
+
+  // Sync mobile reminder value when reminder time changes
+  useEffect(() => {
+    if (activeNote?.reminderTime) setMobileReminderVal(toLocalInputVal(activeNote.reminderTime));
+    else setMobileReminderVal('');
+  }, [activeNote?.reminderTime, activeNoteId]);
 
   // Autosave 1.5s after last keystroke
   const handleContentChange = useCallback((content: string) => {
@@ -1437,7 +1469,8 @@ export function Editor({ onBack }: { onBack?: () => void }) {
             placeholder="Untitled"
           />
 
-          <div className="flex items-center gap-1 shrink-0">
+          {/* ── Desktop: all action buttons inline ─────────────────────── */}
+          <div className="hidden md:flex items-center gap-1 shrink-0">
             {!isReadOnly && (
               <ReminderButton
                 noteId={activeNote.id}
@@ -1446,7 +1479,6 @@ export function Editor({ onBack }: { onBack?: () => void }) {
                 reminderStatus={activeNote.reminderStatus}
               />
             )}
-
             {!isTrash && !isArchive && (
               <button onClick={() => setNoteStatus(activeNote.id, 'archived')} title="Archive"
                 className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground/40 hover:text-foreground hover:bg-muted transition-colors border border-border">
@@ -1465,15 +1497,12 @@ export function Editor({ onBack }: { onBack?: () => void }) {
                 <RotateCcw size={10} /> Restore
               </button>
             )}
-
             {!isTrash && !isArchive && (
               <button onClick={() => trashNote(activeNote.id)} title="Move to trash"
                 className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors border border-border">
                 <Trash2 size={11} />
               </button>
             )}
-
-            {/* Pin */}
             {!isTrash && !isArchive && (
               <button onClick={() => activeNote && togglePinned(activeNote.id)}
                 title={activeNote?.isPinned ? "Unpin" : "Pin to top"}
@@ -1482,16 +1511,11 @@ export function Editor({ onBack }: { onBack?: () => void }) {
                 {activeNote?.isPinned ? <PinOff size={11} /> : <Pin size={11} />}
               </button>
             )}
-
-            {/* Lock / unlock */}
             {!isTrash && !isArchive && (
               <button
                 onClick={() => {
                   if (activeNote?.locked) {
-                    // If session-unlocked, re-lock; otherwise already locked (lock screen handles it)
-                    if (!isSessionLocked && activeNote.id) {
-                      useNotesStore.getState().sessionLock(activeNote.id);
-                    }
+                    if (!isSessionLocked && activeNote.id) useNotesStore.getState().sessionLock(activeNote.id);
                   } else {
                     setLockPassword(''); setLockError(''); setShowLockModal(true);
                   }
@@ -1502,36 +1526,28 @@ export function Editor({ onBack }: { onBack?: () => void }) {
                 {activeNote?.locked ? <Lock size={11} /> : <LockOpen size={11} />}
               </button>
             )}
-
-            {/* Export */}
             {!isSessionLocked && (
               <button onClick={handleExportMd} title="Export as .md"
                 className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground/40 hover:text-foreground hover:bg-muted transition-colors border border-border">
                 <FileDown size={11} />
               </button>
             )}
-
-            {/* Reading mode */}
             {!isSessionLocked && (
               <button onClick={() => setShowReading(true)} title="Reading mode"
                 className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground/40 hover:text-foreground hover:bg-muted transition-colors border border-border">
                 <BookOpen size={11} />
               </button>
             )}
-
             <button onClick={() => setShowHistory(p => !p)} title="Version history"
               className={cn("h-6 w-6 rounded flex items-center justify-center transition-colors border border-border",
                 showHistory ? "bg-muted text-foreground" : "text-muted-foreground/40 hover:text-foreground hover:bg-muted")}>
               <History size={11} />
             </button>
-
             <button onClick={() => setShowPreview(p => !p)} title="Toggle preview"
               className={cn("h-6 w-6 rounded flex items-center justify-center transition-colors border border-border",
                 showPreview ? "bg-muted text-foreground" : "text-muted-foreground/40 hover:text-foreground hover:bg-muted")}>
               {showPreview ? <EyeOff size={11} /> : <Eye size={11} />}
             </button>
-
-            {/* Find & Replace */}
             {!isSessionLocked && (
               <button onClick={() => setShowFind(p => !p)} title="Find & Replace (Ctrl+F)"
                 className={cn("h-6 w-6 rounded flex items-center justify-center transition-colors border border-border",
@@ -1539,22 +1555,146 @@ export function Editor({ onBack }: { onBack?: () => void }) {
                 <Search size={11} />
               </button>
             )}
-
-            {/* Shortcuts */}
             <button onClick={() => setShowShortcuts(true)} title="Keyboard shortcuts (?)"
               className="h-6 w-6 rounded flex items-center justify-center text-muted-foreground/40 hover:text-foreground hover:bg-muted transition-colors border border-border">
               <Keyboard size={11} />
             </button>
-
             <button onClick={saveActiveNote} disabled={!isDirty || isReadOnly}
               title={isDirty ? "Save (Ctrl+S)" : "Saved"}
               className={cn("h-6 px-2 rounded flex items-center gap-1 text-[11px] border transition-all",
-                isDirty
-                  ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/20"
-                  : "border-border text-muted-foreground/30 cursor-default")}>
+                isDirty ? "border-primary/40 bg-primary/10 text-primary hover:bg-primary/20" : "border-border text-muted-foreground/30 cursor-default")}>
               <Save size={10} />
               {isDirty ? "Save" : "Saved"}
             </button>
+          </div>
+
+          {/* ── Mobile: unsaved indicator + ⋯ overflow menu ─────────────── */}
+          <div className="flex md:hidden items-center gap-1.5 shrink-0">
+            {isDirty && !isReadOnly && (
+              <button onClick={saveActiveNote}
+                className="h-7 px-2 rounded-lg border border-primary/40 bg-primary/10 text-primary text-[11px] flex items-center gap-1">
+                <Save size={10} /> Save
+              </button>
+            )}
+            <div className="relative" ref={moreMenuRef}>
+              <button
+                onClick={() => setShowMoreMenu(p => !p)}
+                className={cn("h-7 w-7 flex items-center justify-center rounded-lg border transition-colors",
+                  showMoreMenu ? "border-primary/40 bg-primary/10 text-primary" : "border-border text-muted-foreground/60 hover:text-foreground hover:bg-muted")}>
+                <MoreHorizontal size={15} />
+              </button>
+
+              {showMoreMenu && (
+                <div className="absolute right-0 top-9 z-[300] w-52 bg-popover border border-border rounded-xl shadow-2xl py-1.5 animate-in fade-in zoom-in-95 duration-100">
+                  {/* Reminder */}
+                  {!isReadOnly && (
+                    <button
+                      onClick={() => { setShowMoreMenu(false); setShowMobileReminder(true); }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-popover-foreground hover:bg-muted transition-colors text-left">
+                      <Bell size={13} className={activeNote.hasReminder ? "text-primary" : "text-muted-foreground/50"} />
+                      {activeNote.hasReminder ? `Reminder: ${activeNote.reminderTime ? format(new Date(activeNote.reminderTime), 'MMM d, h:mm a') : ''}` : 'Set reminder'}
+                    </button>
+                  )}
+
+                  <div className="my-1 border-t border-border/60" />
+
+                  {/* Archive / Restore */}
+                  {!isTrash && !isArchive && (
+                    <button onClick={() => { setNoteStatus(activeNote.id, 'archived'); setShowMoreMenu(false); }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-popover-foreground hover:bg-muted transition-colors text-left">
+                      <Archive size={13} className="text-muted-foreground/50" /> Archive
+                    </button>
+                  )}
+                  {(isArchive || isTrash) && (
+                    <button onClick={() => { restoreNote(activeNote.id); setShowMoreMenu(false); }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-popover-foreground hover:bg-muted transition-colors text-left">
+                      <RotateCcw size={13} className="text-muted-foreground/50" /> Restore
+                    </button>
+                  )}
+
+                  {/* Trash */}
+                  {!isTrash && !isArchive && (
+                    <button onClick={() => { trashNote(activeNote.id); setShowMoreMenu(false); }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-destructive hover:bg-destructive/10 transition-colors text-left">
+                      <Trash2 size={13} /> Move to trash
+                    </button>
+                  )}
+
+                  <div className="my-1 border-t border-border/60" />
+
+                  {/* Pin */}
+                  {!isTrash && !isArchive && (
+                    <button onClick={() => { togglePinned(activeNote.id); setShowMoreMenu(false); }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-popover-foreground hover:bg-muted transition-colors text-left">
+                      {activeNote.isPinned ? <PinOff size={13} className="text-primary" /> : <Pin size={13} className="text-muted-foreground/50" />}
+                      {activeNote.isPinned ? 'Unpin' : 'Pin to top'}
+                    </button>
+                  )}
+
+                  {/* Lock */}
+                  {!isTrash && !isArchive && (
+                    <button onClick={() => {
+                      setShowMoreMenu(false);
+                      if (activeNote.locked) {
+                        if (!isSessionLocked) useNotesStore.getState().sessionLock(activeNote.id);
+                      } else {
+                        setLockPassword(''); setLockError(''); setShowLockModal(true);
+                      }
+                    }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-popover-foreground hover:bg-muted transition-colors text-left">
+                      {activeNote.locked ? <Lock size={13} className="text-amber-500" /> : <LockOpen size={13} className="text-muted-foreground/50" />}
+                      {activeNote.locked ? (isSessionLocked ? 'Locked' : 'Lock now') : 'Lock note'}
+                    </button>
+                  )}
+
+                  <div className="my-1 border-t border-border/60" />
+
+                  {/* Export */}
+                  {!isSessionLocked && (
+                    <button onClick={() => { handleExportMd(); setShowMoreMenu(false); }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-popover-foreground hover:bg-muted transition-colors text-left">
+                      <FileDown size={13} className="text-muted-foreground/50" /> Export as .md
+                    </button>
+                  )}
+                  {!isSessionLocked && (
+                    <button onClick={() => { handleCopyContent(); setShowMoreMenu(false); }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-popover-foreground hover:bg-muted transition-colors text-left">
+                      <Copy size={13} className="text-muted-foreground/50" /> Copy to clipboard
+                    </button>
+                  )}
+
+                  <div className="my-1 border-t border-border/60" />
+
+                  {/* View options */}
+                  {!isSessionLocked && (
+                    <button onClick={() => { setShowReading(true); setShowMoreMenu(false); }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-popover-foreground hover:bg-muted transition-colors text-left">
+                      <BookOpen size={13} className="text-muted-foreground/50" /> Reading mode
+                    </button>
+                  )}
+                  <button onClick={() => { setShowPreview(p => !p); setShowMoreMenu(false); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-popover-foreground hover:bg-muted transition-colors text-left">
+                    {showPreview ? <EyeOff size={13} className="text-primary" /> : <Eye size={13} className="text-muted-foreground/50" />}
+                    {showPreview ? 'Hide preview' : 'Split preview'}
+                  </button>
+                  <button onClick={() => { setShowHistory(p => !p); setShowMoreMenu(false); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-popover-foreground hover:bg-muted transition-colors text-left">
+                    <History size={13} className={showHistory ? "text-primary" : "text-muted-foreground/50"} />
+                    Version history
+                  </button>
+                  {!isSessionLocked && (
+                    <button onClick={() => { setShowFind(p => !p); setShowMoreMenu(false); }}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-popover-foreground hover:bg-muted transition-colors text-left">
+                      <Search size={13} className={showFind ? "text-primary" : "text-muted-foreground/50"} /> Find & Replace
+                    </button>
+                  )}
+                  <button onClick={() => { setShowShortcuts(true); setShowMoreMenu(false); }}
+                    className="w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-popover-foreground hover:bg-muted transition-colors text-left">
+                    <Keyboard size={13} className="text-muted-foreground/50" /> Keyboard shortcuts
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -1724,7 +1864,55 @@ export function Editor({ onBack }: { onBack?: () => void }) {
       {/* ── Shortcuts modal ── */}
       {showShortcuts && <ShortcutsModal onClose={() => setShowShortcuts(false)} />}
 
-      {/* ── Set lock password modal ── */}
+      {/* ── Mobile reminder modal (fixed center, avoids off-screen popovers) ── */}
+      {showMobileReminder && activeNote && createPortal(
+        <div
+          className="fixed inset-0 z-[9300] flex items-end sm:items-center justify-center bg-black/50 px-4 pb-safe-or-6"
+          onMouseDown={e => { if (e.target === e.currentTarget) setShowMobileReminder(false); }}
+        >
+          <div className="w-full max-w-xs bg-popover border border-border rounded-2xl shadow-2xl p-4 space-y-3 animate-in slide-in-from-bottom sm:zoom-in-95 duration-200 mb-4 sm:mb-0">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Bell size={14} className="text-primary" />
+                <p className="text-[13px] font-semibold text-foreground">Set reminder</p>
+              </div>
+              <button onClick={() => setShowMobileReminder(false)} className="text-muted-foreground/50 hover:text-foreground transition-colors">
+                <X size={14} />
+              </button>
+            </div>
+            <input
+              type="datetime-local"
+              value={mobileReminderVal}
+              min={toLocalInputVal(new Date().toISOString())}
+              onChange={e => setMobileReminderVal(e.target.value)}
+              className="w-full text-[13px] bg-muted border border-border rounded-lg px-3 py-2 outline-none focus:ring-1 focus:ring-ring"
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <button
+                onClick={() => {
+                  if (mobileReminderVal) {
+                    setReminder(activeNote.id, new Date(mobileReminderVal).toISOString());
+                    setShowMobileReminder(false);
+                  }
+                }}
+                disabled={!mobileReminderVal}
+                className="flex-1 h-9 rounded-lg bg-primary text-primary-foreground text-[13px] font-medium hover:opacity-90 disabled:opacity-50 transition-opacity flex items-center justify-center gap-1.5">
+                <Check size={13} /> Save
+              </button>
+              {activeNote.hasReminder && (
+                <button
+                  onClick={() => { setReminder(activeNote.id, null); setShowMobileReminder(false); }}
+                  className="flex-1 h-9 rounded-lg border border-destructive/40 text-destructive text-[13px] hover:bg-destructive/10 transition-colors flex items-center justify-center gap-1.5">
+                  <X size={13} /> Clear
+                </button>
+              )}
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
+
       {showLockModal && createPortal(
         <div
           className="fixed inset-0 z-[9200] flex items-center justify-center bg-black/40 backdrop-blur-sm"

@@ -1125,8 +1125,8 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   },
 
   createTaskNote: async (text = 'New task') => {
-    const { vaultHandle, userId } = get();
-    if (!vaultHandle || !userId) return;
+    const { vaultHandle, proxyVault, userId } = get();
+    if ((!vaultHandle && proxyVault === null) || !userId) return;
     await get().createNewNote(text);
     // Pre-populate with a task line
     const initialContent = `- [ ] ${text}\n`;
@@ -1689,7 +1689,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 // ─── Selectors ────────────────────────────────────────────────────────────────
 
 export function selectFilteredNotes(state: NotesState): NoteFile[] {
-  const { notes, activeSection, searchQuery } = state;
+  const { notes, activeSection, searchQuery, proxyContent } = state;
 
   let list = notes.filter(n => {
     switch (activeSection.type) {
@@ -1704,10 +1704,14 @@ export function selectFilteredNotes(state: NotesState): NoteFile[] {
 
   if (searchQuery) {
     const q = searchQuery.toLowerCase();
-    list = list.filter(n =>
-      n.title.toLowerCase().includes(q) ||
-      n.tags.some(t => t.toLowerCase().includes(q))
-    );
+    list = list.filter(n => {
+      if (n.title.toLowerCase().includes(q)) return true;
+      if (n.tags.some(t => t.toLowerCase().includes(q))) return true;
+      // Also search note content when it's available in memory (cloud vault users)
+      const content = proxyContent[n.id];
+      if (content && content.toLowerCase().includes(q)) return true;
+      return false;
+    });
   }
 
   // Pinned always float to top, then favorites, then rest
