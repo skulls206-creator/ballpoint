@@ -21,10 +21,14 @@ function DueDatePopover({
   onClose,
 }: { task: Task; onClose: () => void }) {
   const setTaskDueDate = useNotesStore(s => s.setTaskDueDate);
-  // Use local-time string so the picker shows the right time regardless of timezone
-  const [value, setValue] = useState(() =>
-    task.dueDate ? toLocalInputValue(new Date(task.dueDate)) : ''
-  );
+  // Always pre-fill — if no due date, default to tomorrow at 9 am
+  const [value, setValue] = useState(() => {
+    if (task.dueDate) return toLocalInputValue(new Date(task.dueDate));
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    d.setHours(9, 0, 0, 0);
+    return toLocalInputValue(d);
+  });
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {

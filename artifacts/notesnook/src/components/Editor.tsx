@@ -760,11 +760,17 @@ function ReminderButton({ noteId, hasReminder, reminderTime, reminderStatus }: {
   const setReminder     = useNotesStore(s => s.setReminder);
   const dismissReminder = useNotesStore(s => s.dismissReminder);
   const [open, setOpen] = useState(false);
-  const [value, setValue] = useState('');
   const popoverRef = useRef<HTMLDivElement>(null);
+  const defaultReminderVal = () => {
+    if (reminderTime) return toLocalInputVal(reminderTime);
+    const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0);
+    return toLocalInputVal(d.toISOString());
+  };
+  const [value, setValue] = useState(defaultReminderVal);
 
   useEffect(() => {
     if (reminderTime) setValue(toLocalInputVal(reminderTime));
+    else { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); setValue(toLocalInputVal(d.toISOString())); }
   }, [reminderTime]);
 
   useEffect(() => {
@@ -1214,7 +1220,7 @@ export function Editor({ onBack }: { onBack?: () => void }) {
   // Mobile overflow menu
   const [showMoreMenu,       setShowMoreMenu]       = useState(false);
   const [showMobileReminder, setShowMobileReminder] = useState(false);
-  const [mobileReminderVal,  setMobileReminderVal]  = useState('');
+  const [mobileReminderVal,  setMobileReminderVal]  = useState(() => { const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0); return toLocalInputVal(d.toISOString()); });
   const moreMenuRef          = useRef<HTMLDivElement>(null);
   const titleRef             = useRef<HTMLInputElement>(null);
   const textareaRef          = useRef<HTMLTextAreaElement>(null);
@@ -1275,8 +1281,12 @@ export function Editor({ onBack }: { onBack?: () => void }) {
 
   // Sync mobile reminder value when reminder time changes
   useEffect(() => {
-    if (activeNote?.reminderTime) setMobileReminderVal(toLocalInputVal(activeNote.reminderTime));
-    else setMobileReminderVal('');
+    if (activeNote?.reminderTime) {
+      setMobileReminderVal(toLocalInputVal(activeNote.reminderTime));
+    } else {
+      const d = new Date(); d.setDate(d.getDate() + 1); d.setHours(9, 0, 0, 0);
+      setMobileReminderVal(toLocalInputVal(d.toISOString()));
+    }
   }, [activeNote?.reminderTime, activeNoteId]);
 
   // Autosave 1.5s after last keystroke
