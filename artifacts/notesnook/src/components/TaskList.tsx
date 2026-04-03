@@ -1,4 +1,5 @@
 import { useMemo, useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { format, isToday, isPast, isTomorrow, isThisYear } from 'date-fns';
 import {
   CheckSquare, Square, CalendarDays, FileText,
@@ -16,12 +17,13 @@ function toLocalInputValue(d: Date): string {
 }
 
 // ─── Due Date Popover ─────────────────────────────────────────────────────────
+// Rendered via portal so it escapes overflow-hidden/overflow-y-auto containers.
 function DueDatePopover({
   task,
+  anchorRect,
   onClose,
-}: { task: Task; onClose: () => void }) {
+}: { task: Task; anchorRect: DOMRect; onClose: () => void }) {
   const setTaskDueDate = useNotesStore(s => s.setTaskDueDate);
-  // Always pre-fill — if no due date, default to tomorrow at 9 am
   const [value, setValue] = useState(() => {
     if (task.dueDate) return toLocalInputValue(new Date(task.dueDate));
     const d = new Date();
@@ -31,6 +33,7 @@ function DueDatePopover({
   });
   const ref = useRef<HTMLDivElement>(null);
 
+  // Close on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (!ref.current?.contains(e.target as Node)) onClose();
@@ -40,7 +43,6 @@ function DueDatePopover({
   }, [onClose]);
 
   const save = () => {
-    // `new Date(value)` treats the local-time string as local time, then toISOString() → UTC ✓
     setTaskDueDate(task.id, value ? new Date(value).toISOString() : null);
     onClose();
   };
@@ -48,8 +50,6 @@ function DueDatePopover({
     setTaskDueDate(task.id, null);
     onClose();
   };
-
-  // Quick-pick shortcuts
   const setQuick = (offsetDays: number, hour = 9) => {
     const d = new Date();
     d.setDate(d.getDate() + offsetDays);
@@ -57,12 +57,24 @@ function DueDatePopover({
     setValue(toLocalInputValue(d));
   };
 
-  return (
-    <div ref={ref}
-      className="absolute left-0 top-7 z-[200] w-60 bg-popover border border-popover-border rounded-xl shadow-xl p-3 space-y-2 animate-in fade-in zoom-in-95 duration-100">
+  // Position: open below the anchor, nudge left so it doesn't run off-screen
+  const POPOVER_W = 240;
+  const gap = 4;
+  let left = anchorRect.left;
+  let top  = anchorRect.bottom + gap;
+  // Clamp so it never overflows the right edge
+  if (left + POPOVER_W > window.innerWidth - 8) {
+    left = window.innerWidth - POPOVER_W - 8;
+  }
+
+  return createPortal(
+    <div
+      ref={ref}
+      style={{ position: 'fixed', top, left, width: POPOVER_W, zIndex: 9999 }}
+      className="bg-popover border border-popover-border rounded-xl shadow-xl p-3 space-y-2 animate-in fade-in zoom-in-95 duration-100"
+    >
       <p className="text-[11px] font-medium text-foreground">Set due date & time</p>
 
-      {/* Quick picks */}
       <div className="flex gap-1 flex-wrap">
         {[
           { label: 'Today',     days: 0, hour: 9 },
@@ -84,6 +96,7 @@ function DueDatePopover({
         className="w-full text-[11px] bg-muted border border-border rounded px-2 py-1 outline-none focus:ring-1 focus:ring-ring"
         autoFocus
       />
+
       <div className="flex gap-1.5">
         <button onClick={save}
           className="flex-1 h-6 rounded bg-primary text-primary-foreground text-[11px] font-medium hover:opacity-90 transition-opacity">
@@ -96,10 +109,12 @@ function DueDatePopover({
           </button>
         )}
       </div>
+
       <p className="text-[9px] text-muted-foreground/40 leading-relaxed">
         A notification fires when the time arrives — keep this tab open.
       </p>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -109,6 +124,8 @@ function TaskRow({ task }: { task: Task }) {
   const selectNote   = useNotesStore(s => s.selectNote);
   const setActiveSection = useNotesStore(s => s.setActiveSection);
   const [duePop, setDuePop] = useState(false);
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
+  const calBtnRef = useRef<HTMLButtonElement>(null);
 
   const dueDateLabel = useMemo(() => {
     if (!task.dueDate) return null;
@@ -168,26 +185,30 @@ function TaskRow({ task }: { task: Task }) {
             <span className="truncate max-w-[100px]">{task.noteTitle}</span>
           </button>
 
-          {/* Due date badge */}
-          <div className="relative">
-            <button
-              onClick={() => setDuePop(p => !p)}
-              className={cn(
-                "flex items-center gap-0.5 text-[10px] transition-colors",
-                isOverdue
-                  ? "text-destructive"
-                  : task.dueDate
-                  ? "text-primary"
-                  : "text-muted-foreground/30 hover:text-muted-foreground"
-              )}
-            >
-              <CalendarDays size={9} />
-              <span>{dueDateLabel ?? 'no date'}</span>
-            </button>
-            {duePop && (
-              <DueDatePopover task={task} onClose={() => setDuePop(false)} />
+          {/* Due date badge — popover renders via portal, no wrapper needed */}
+          <button
+            ref={calBtnRef}
+            onClick={() => {
+              if (!duePop && calBtnRef.current) {
+                setAnchorRect(calBtnRef.current.getBoundingClientRect());
+              }
+              setDuePop(p => !p);
+            }}
+            className={cn(
+              "flex items-center gap-0.5 text-[10px] transition-colors",
+              isOverdue
+                ? "text-destructive"
+                : task.dueDate
+                ? "text-primary"
+                : "text-muted-foreground/30 hover:text-muted-foreground"
             )}
-          </div>
+          >
+            <CalendarDays size={9} />
+            <span>{dueDateLabel ?? 'no date'}</span>
+          </button>
+          {duePop && anchorRect && (
+            <DueDatePopover task={task} anchorRect={anchorRect} onClose={() => setDuePop(false)} />
+          )}
         </div>
       </div>
     </div>
