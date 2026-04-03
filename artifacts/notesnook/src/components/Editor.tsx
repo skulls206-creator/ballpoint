@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { marked } from 'marked';
 import DOMPurify from 'dompurify';
 import { format, formatDistanceToNow } from 'date-fns';
@@ -10,6 +11,7 @@ import {
   List, ListOrdered, ListChecks, Quote, Minus,
   Image, History, Clock, ChevronRight, ChevronLeft,
   Paperclip, Download, FileText as FileIcon, Loader2,
+  Copy, Scissors, Clipboard, AlignLeft,
 } from 'lucide-react';
 import { useNotesStore } from '../lib/store';
 import { cn } from '../lib/utils';
@@ -326,6 +328,51 @@ function TextareaContextMenu({
 
   const groups: { label?: string; items: { icon: React.ReactNode; label: string; action: () => void }[] }[] = [
     {
+      label: 'Clipboard',
+      items: [
+        {
+          icon: <Copy size={11} />, label: 'Copy',
+          action: () => {
+            const ta = textareaRef.current; if (!ta) return;
+            const sel = ta.value.slice(ta.selectionStart, ta.selectionEnd);
+            if (sel) navigator.clipboard.writeText(sel).catch(() => {});
+          },
+        },
+        {
+          icon: <Scissors size={11} />, label: 'Cut',
+          action: () => {
+            const ta = textareaRef.current; if (!ta) return;
+            const { selectionStart: ss, selectionEnd: se, value } = ta;
+            const sel = value.slice(ss, se); if (!sel) return;
+            navigator.clipboard.writeText(sel).catch(() => {});
+            const next = value.slice(0, ss) + value.slice(se);
+            onChange(next);
+            requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(ss, ss); });
+          },
+        },
+        {
+          icon: <Clipboard size={11} />, label: 'Paste',
+          action: async () => {
+            const ta = textareaRef.current; if (!ta) return;
+            try {
+              const text = await navigator.clipboard.readText();
+              const { selectionStart: ss, selectionEnd: se, value } = ta;
+              const next = value.slice(0, ss) + text + value.slice(se);
+              onChange(next);
+              requestAnimationFrame(() => { ta.focus(); ta.setSelectionRange(ss + text.length, ss + text.length); });
+            } catch { /* clipboard permission denied */ }
+          },
+        },
+        {
+          icon: <AlignLeft size={11} />, label: 'Select All',
+          action: () => {
+            const ta = textareaRef.current; if (!ta) return;
+            ta.focus(); ta.select();
+          },
+        },
+      ],
+    },
+    {
       items: [
         { icon: <Bold size={11} />,          label: 'Bold',           action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '**' }, onChange); } },
         { icon: <Italic size={11} />,        label: 'Italic',         action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '_' }, onChange); } },
@@ -389,6 +436,95 @@ function TextareaContextMenu({
         </div>
       ))}
     </div>
+  );
+}
+
+// ─── Selection Floating Toolbar ──────────────────────────────────────────────
+function SelectionFloatingToolbar({
+  textareaRef,
+  onChange,
+  anchorPos,
+  onDismiss,
+}: {
+  textareaRef: React.RefObject<HTMLTextAreaElement | null>;
+  onChange: (val: string) => void;
+  anchorPos: { x: number; y: number };
+  onDismiss: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Clamp to viewport after mount
+  const [style, setStyle] = useState<React.CSSProperties>({
+    position: 'fixed',
+    top: anchorPos.y - 46,
+    left: anchorPos.x,
+    transform: 'translateX(-50%)',
+    zIndex: 9999,
+  });
+
+  useEffect(() => {
+    if (!ref.current) return;
+    const { innerWidth: W } = window;
+    const { offsetWidth: w } = ref.current;
+    const clampedLeft = Math.max(w / 2 + 8, Math.min(anchorPos.x, W - w / 2 - 8));
+    const clampedTop  = Math.max(8, anchorPos.y - 46);
+    setStyle({ position: 'fixed', top: clampedTop, left: clampedLeft, transform: 'translateX(-50%)', zIndex: 9999 });
+  }, [anchorPos]);
+
+  const actions = [
+    {
+      icon: <Bold size={12} />, title: 'Bold (Ctrl+B)',
+      action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '**' }, onChange); },
+    },
+    {
+      icon: <Italic size={12} />, title: 'Italic (Ctrl+I)',
+      action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '_' }, onChange); },
+    },
+    {
+      icon: <Strikethrough size={12} />, title: 'Strikethrough',
+      action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '~~' }, onChange); },
+    },
+    {
+      icon: <Code size={12} />, title: 'Inline code',
+      action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '`', suffix: '`', placeholder: 'code' }, onChange); },
+    },
+    { kind: 'sep' as const },
+    {
+      icon: <Link2 size={12} />, title: 'Insert link (Ctrl+K)',
+      action: () => { const ta = textareaRef.current; if (ta) insertLink(ta, onChange); },
+    },
+    { kind: 'sep' as const },
+    {
+      icon: <Copy size={12} />, title: 'Copy selection',
+      action: () => {
+        const ta = textareaRef.current; if (!ta) return;
+        const sel = ta.value.slice(ta.selectionStart, ta.selectionEnd);
+        if (sel) { navigator.clipboard.writeText(sel).catch(() => {}); onDismiss(); }
+      },
+    },
+  ];
+
+  return createPortal(
+    <div ref={ref} style={style}
+      className="flex items-center gap-px px-1 py-1 rounded-lg bg-popover border border-border shadow-2xl animate-in fade-in zoom-in-95 duration-100"
+    >
+      {actions.map((a, i) => {
+        if ('kind' in a && a.kind === 'sep') {
+          return <div key={i} className="w-px h-4 bg-border mx-0.5 shrink-0" />;
+        }
+        return (
+          <button
+            key={i}
+            onMouseDown={e => { e.preventDefault(); a.action(); }}
+            title={'title' in a ? a.title : ''}
+            className="w-7 h-7 flex items-center justify-center rounded text-foreground/70 hover:text-foreground hover:bg-muted transition-colors"
+          >
+            {'icon' in a ? a.icon : null}
+          </button>
+        );
+      })}
+    </div>,
+    document.body
   );
 }
 
@@ -722,6 +858,7 @@ export function Editor({ onBack }: { onBack?: () => void }) {
   const [showPreview,  setShowPreview]  = useState(false);
   const [showHistory,  setShowHistory]  = useState(false);
   const [ctxMenu,      setCtxMenu]      = useState<CtxPos | null>(null);
+  const [selectionBar, setSelectionBar] = useState<{ x: number; y: number } | null>(null);
   const [dragOver,     setDragOver]     = useState(false);
   const [titleValue,   setTitleValue]   = useState('');
   const titleRef        = useRef<HTMLInputElement>(null);
@@ -784,6 +921,48 @@ export function Editor({ onBack }: { onBack?: () => void }) {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [saveActiveNote]);
+
+  // ── Selection toolbar: show when text is highlighted ──────────────────────
+  const handleTextareaMouseUp = useCallback((e: React.MouseEvent<HTMLTextAreaElement>) => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    // Small delay so browser finalises the selection
+    const cx = e.clientX, cy = e.clientY;
+    setTimeout(() => {
+      if (ta.selectionStart !== ta.selectionEnd) setSelectionBar({ x: cx, y: cy });
+      else setSelectionBar(null);
+    }, 30);
+  }, []);
+
+  const handleTextareaKeyUp = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    const ta = textareaRef.current;
+    if (!ta) return;
+    if (ta.selectionStart !== ta.selectionEnd) {
+      const rect = ta.getBoundingClientRect();
+      setSelectionBar({ x: rect.left + rect.width / 2, y: rect.top + 20 });
+    } else {
+      setSelectionBar(null);
+    }
+  }, []);
+
+  // Dismiss selection toolbar on click outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      // Keep toolbar if clicking inside it (handled by onMouseDown+preventDefault there)
+      if (!textareaRef.current?.contains(target)) setSelectionBar(null);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  // ── Word / character count ─────────────────────────────────────────────────
+  const wordCount = useMemo(() => {
+    if (!activeContent?.trim()) return { words: 0, chars: 0 };
+    const words = activeContent.trim().split(/\s+/).filter(Boolean).length;
+    const chars = activeContent.length;
+    return { words, chars };
+  }, [activeContent]);
 
   // Memoize the markdown render so it only re-runs when content changes
   const cleanHtml = useMemo(() => {
@@ -1007,9 +1186,22 @@ export function Editor({ onBack }: { onBack?: () => void }) {
             disabled={isReadOnly}
             placeholder={isReadOnly ? "(Note is in trash — restore to edit)" : "Start writing in Markdown..."}
             spellCheck={true}
-            onContextMenu={!isReadOnly ? e => { e.preventDefault(); setCtxMenu({ x: e.clientX, y: e.clientY }); } : undefined}
+            onMouseUp={!isReadOnly ? handleTextareaMouseUp : undefined}
+            onKeyUp={!isReadOnly ? handleTextareaKeyUp : undefined}
+            onContextMenu={!isReadOnly ? e => { e.preventDefault(); setSelectionBar(null); setCtxMenu({ x: e.clientX, y: e.clientY }); } : undefined}
             className="flex-1 w-full bg-transparent px-6 py-4 resize-none outline-none font-mono text-[13px] leading-relaxed text-foreground placeholder:text-muted-foreground/30 disabled:opacity-50"
           />
+          {/* Word count */}
+          {!isReadOnly && (
+            <div className="shrink-0 flex items-center justify-end gap-3 px-4 py-1 border-t border-border/40 bg-card/10">
+              <span className="text-[10px] text-muted-foreground/40 tabular-nums">
+                {wordCount.words.toLocaleString()} {wordCount.words === 1 ? 'word' : 'words'}
+              </span>
+              <span className="text-[10px] text-muted-foreground/30 tabular-nums">
+                {wordCount.chars.toLocaleString()} chars
+              </span>
+            </div>
+          )}
         </div>
 
         {showPreview && (
@@ -1037,6 +1229,16 @@ export function Editor({ onBack }: { onBack?: () => void }) {
           />
         )}
       </div>
+
+      {/* Selection floating toolbar */}
+      {selectionBar && !isReadOnly && (
+        <SelectionFloatingToolbar
+          textareaRef={textareaRef}
+          onChange={handleContentChange}
+          anchorPos={selectionBar}
+          onDismiss={() => setSelectionBar(null)}
+        />
+      )}
 
       {/* Textarea right-click context menu */}
       {ctxMenu && (
