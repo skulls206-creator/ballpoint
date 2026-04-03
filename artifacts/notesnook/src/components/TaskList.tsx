@@ -1,5 +1,5 @@
 import { useMemo, useState, useRef, useEffect } from 'react';
-import { format, isToday, isPast, isTomorrow } from 'date-fns';
+import { format, isToday, isPast, isTomorrow, isThisYear } from 'date-fns';
 import {
   CheckSquare, Square, CalendarDays, FileText,
   Plus, ListTodo, Calendar, Clock, CheckCheck, Menu,
@@ -14,7 +14,7 @@ function DueDatePopover({
   onClose,
 }: { task: Task; onClose: () => void }) {
   const setTaskDueDate = useNotesStore(s => s.setTaskDueDate);
-  const [value, setValue] = useState(task.dueDate ? task.dueDate.slice(0, 10) : '');
+  const [value, setValue] = useState(task.dueDate ? task.dueDate.slice(0, 16) : '');
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -34,13 +34,37 @@ function DueDatePopover({
     onClose();
   };
 
+  // Quick-pick shortcuts
+  const setQuick = (offsetDays: number, hour = 9) => {
+    const d = new Date();
+    d.setDate(d.getDate() + offsetDays);
+    d.setHours(hour, 0, 0, 0);
+    setValue(d.toISOString().slice(0, 16));
+  };
+
   return (
     <div ref={ref}
-      className="absolute right-0 top-7 z-[200] w-52 bg-popover border border-popover-border rounded-xl shadow-xl p-3 space-y-2 animate-in fade-in zoom-in-95 duration-100">
-      <p className="text-[11px] font-medium text-foreground">Set due date</p>
+      className="absolute right-0 top-7 z-[200] w-60 bg-popover border border-popover-border rounded-xl shadow-xl p-3 space-y-2 animate-in fade-in zoom-in-95 duration-100">
+      <p className="text-[11px] font-medium text-foreground">Set due date & time</p>
+
+      {/* Quick picks */}
+      <div className="flex gap-1 flex-wrap">
+        {[
+          { label: 'Today',     days: 0, hour: 9 },
+          { label: 'Tomorrow',  days: 1, hour: 9 },
+          { label: 'Next week', days: 7, hour: 9 },
+        ].map(({ label, days, hour }) => (
+          <button key={label} onClick={() => setQuick(days, hour)}
+            className="px-2 py-0.5 rounded-full bg-muted border border-border text-[10px] text-foreground/70 hover:bg-primary/10 hover:text-primary hover:border-primary/30 transition-colors">
+            {label}
+          </button>
+        ))}
+      </div>
+
       <input
-        type="date"
+        type="datetime-local"
         value={value}
+        min={new Date().toISOString().slice(0, 16)}
         onChange={e => setValue(e.target.value)}
         className="w-full text-[11px] bg-muted border border-border rounded px-2 py-1 outline-none focus:ring-1 focus:ring-ring"
         autoFocus
@@ -57,6 +81,9 @@ function DueDatePopover({
           </button>
         )}
       </div>
+      <p className="text-[9px] text-muted-foreground/40 leading-relaxed">
+        A notification fires when the time arrives — keep this tab open.
+      </p>
     </div>
   );
 }
@@ -71,11 +98,15 @@ function TaskRow({ task }: { task: Task }) {
   const dueDateLabel = useMemo(() => {
     if (!task.dueDate) return null;
     const d = new Date(task.dueDate);
-    if (isToday(d)) return 'Today';
-    if (isTomorrow(d)) return 'Tomorrow';
-    if (isPast(d)) return format(d, 'MMM d') + ' ·  overdue';
-    return format(d, 'MMM d');
-  }, [task.dueDate]);
+    // Check whether a specific time was set (not midnight)
+    const hasTime = d.getHours() !== 0 || d.getMinutes() !== 0;
+    const timeStr = hasTime ? ` · ${format(d, 'h:mm a')}` : '';
+    if (isToday(d)) return `Today${timeStr}`;
+    if (isTomorrow(d)) return `Tomorrow${timeStr}`;
+    if (isPast(d) && !task.completed) return `${format(d, 'MMM d')}${timeStr} · overdue`;
+    const dateStr = isThisYear(d) ? format(d, 'MMM d') : format(d, 'MMM d, yyyy');
+    return `${dateStr}${timeStr}`;
+  }, [task.dueDate, task.completed]);
 
   const isOverdue = task.dueDate && isPast(new Date(task.dueDate)) && !isToday(new Date(task.dueDate)) && !task.completed;
 

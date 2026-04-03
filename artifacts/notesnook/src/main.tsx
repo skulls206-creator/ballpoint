@@ -67,40 +67,60 @@ if ('Notification' in window && Notification.permission === 'default') {
 }
 
 // ── Reminder scheduler ────────────────────────────────────────────────────────
+/** Tracks task IDs that already fired a due-date notification this session */
+const firedTaskNotifs = new Set<string>();
+
+async function fireNotification(title: string, body: string, noteId?: string) {
+  if (Notification.permission !== 'granted') return;
+  if ('serviceWorker' in navigator) {
+    try {
+      const reg = await navigator.serviceWorker.ready;
+      await reg.showNotification(title, {
+        body,
+        icon: `${import.meta.env.BASE_URL}favicon.svg`,
+        badge: `${import.meta.env.BASE_URL}favicon.svg`,
+        data: noteId ? { noteId } : undefined,
+        actions: [
+          { action: 'open',    title: 'Open' },
+          { action: 'dismiss', title: 'Dismiss' },
+        ],
+      });
+      return;
+    } catch { /* fall through */ }
+  }
+  new Notification(title, { body });
+}
+
 async function checkReminders() {
   const state = useNotesStore.getState();
   if (!state.userId) return;
 
   const now = Date.now();
+
+  // ── Note-level reminders ──────────────────────────────────────────────────
   for (const note of state.notes) {
     if (note.hasReminder && note.reminderStatus === 'pending' && note.reminderTime) {
-      const reminderAt = new Date(note.reminderTime).getTime();
-      if (now >= reminderAt) {
+      if (now >= new Date(note.reminderTime).getTime()) {
         await state.fireReminder(note.id);
-
-        const title = `Reminder: ${note.title}`;
-        const body = 'Your scheduled reminder has arrived. Click to open.';
-
-        if ('serviceWorker' in navigator && Notification.permission === 'granted') {
-          try {
-            const reg = await navigator.serviceWorker.ready;
-            await reg.showNotification(title, {
-              body,
-              icon: `${import.meta.env.BASE_URL}favicon.svg`,
-              badge: `${import.meta.env.BASE_URL}favicon.svg`,
-              data: { noteId: note.id },
-              actions: [
-                { action: 'open',    title: 'Open Note' },
-                { action: 'dismiss', title: 'Dismiss'   },
-              ],
-            });
-          } catch {
-            if (Notification.permission === 'granted') new Notification(title, { body });
-          }
-        } else if (Notification.permission === 'granted') {
-          new Notification(title, { body });
-        }
+        await fireNotification(
+          `Reminder: ${note.title}`,
+          'Your scheduled reminder has arrived. Click to open.',
+          note.id,
+        );
       }
+    }
+  }
+
+  // ── Task due-date notifications ───────────────────────────────────────────
+  for (const task of Object.values(state.tasks)) {
+    if (task.completed || !task.dueDate || firedTaskNotifs.has(task.id)) continue;
+    if (now >= new Date(task.dueDate).getTime()) {
+      firedTaskNotifs.add(task.id);
+      await fireNotification(
+        `Task due: ${task.text}`,
+        `From note: ${task.noteTitle}`,
+        task.noteId,
+      );
     }
   }
 }
