@@ -95,7 +95,6 @@ function playChime() {
 }
 
 async function fireNotification(title: string, body: string, noteId?: string) {
-  playChime();
   if (Notification.permission !== 'granted') return;
   if ('serviceWorker' in navigator) {
     try {
@@ -110,10 +109,12 @@ async function fireNotification(title: string, body: string, noteId?: string) {
           { action: 'dismiss', title: 'Dismiss' },
         ],
       });
+      playChime();
       return;
-    } catch { /* fall through */ }
+    } catch { /* fall through to Notification API */ }
   }
   new Notification(title, { body });
+  playChime();
 }
 
 async function checkReminders() {
