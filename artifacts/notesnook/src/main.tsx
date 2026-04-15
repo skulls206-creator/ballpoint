@@ -73,7 +73,10 @@ const firedTaskNotifs = new Set<string>();
 /** Play a short two-tone chime using the Web Audio API (no audio file needed). */
 function playChime() {
   try {
-    const ctx = new AudioContext();
+    const AudioCtx = window.AudioContext
+      ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
     const gain = ctx.createGain();
     gain.connect(ctx.destination);
     gain.gain.setValueAtTime(0, ctx.currentTime);

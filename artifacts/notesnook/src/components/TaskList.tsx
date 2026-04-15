@@ -259,10 +259,8 @@ export function TaskList({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
 
   const meta = viewMeta[view];
 
-  // Inbox count = all active tasks (today + upcoming + no-date)
-  const count = view === 'inbox'
-    ? counts.today + counts.upcoming + counts.inbox
-    : counts[view];
+  // counts.inbox already equals today + upcoming + no-date (all active tasks)
+  const count = counts[view];
 
   // Whether the unified inbox is entirely empty
   const inboxEmpty = view === 'inbox' && grouped !== null

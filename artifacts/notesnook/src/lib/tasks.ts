@@ -159,10 +159,13 @@ export function selectTasksByView(tasks: TaskMap, view: TaskView): Task[] {
 export function selectTaskCounts(tasks: TaskMap) {
   const all = Object.values(tasks);
   const tmrw = tomorrowStart();
+  const today    = all.filter(t => !t.completed && !!t.dueDate && new Date(t.dueDate).getTime() < tmrw).length;
+  const upcoming = all.filter(t => !t.completed && !!t.dueDate && new Date(t.dueDate).getTime() >= tmrw).length;
+  const noDate   = all.filter(t => !t.completed && !t.dueDate).length;
   return {
-    inbox:    all.filter(t => !t.completed && !t.dueDate).length,
-    today:    all.filter(t => !t.completed && !!t.dueDate && new Date(t.dueDate).getTime() < tmrw).length,
-    upcoming: all.filter(t => !t.completed && !!t.dueDate && new Date(t.dueDate).getTime() >= tmrw).length,
+    inbox:    today + upcoming + noDate, // all active tasks — matches unified inbox panel
+    today,
+    upcoming,
     done:     all.filter(t => t.completed).length,
   };
 }

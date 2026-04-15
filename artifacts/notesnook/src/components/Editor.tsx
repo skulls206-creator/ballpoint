@@ -148,7 +148,12 @@ function handleListContinuation(
 
   e.preventDefault();
 
-  const itemContent = currentLine.slice(prefix.length).trim();
+  // Check the FULL line (not just pre-cursor text) to decide if the item is empty.
+  // If cursor is at the start of content (right after prefix), only checking pre-cursor
+  // text would wrongly treat a non-empty item as empty.
+  const lineEnd = value.indexOf('\n', pos);
+  const fullLine = value.slice(lineStart, lineEnd === -1 ? value.length : lineEnd);
+  const itemContent = fullLine.slice(prefix.length).trim();
 
   if (itemContent === '') {
     // Empty item → exit list mode: strip the prefix from the current line
