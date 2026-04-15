@@ -70,7 +70,32 @@ if ('Notification' in window && Notification.permission === 'default') {
 /** Tracks task IDs that already fired a due-date notification this session */
 const firedTaskNotifs = new Set<string>();
 
+/** Play a short two-tone chime using the Web Audio API (no audio file needed). */
+function playChime() {
+  try {
+    const ctx = new AudioContext();
+    const gain = ctx.createGain();
+    gain.connect(ctx.destination);
+    gain.gain.setValueAtTime(0, ctx.currentTime);
+    gain.gain.linearRampToValueAtTime(0.25, ctx.currentTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.9);
+
+    // Two-tone chime: C5 then E5
+    [523.25, 659.25].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + i * 0.18);
+      osc.connect(gain);
+      osc.start(ctx.currentTime + i * 0.18);
+      osc.stop(ctx.currentTime + i * 0.18 + 0.7);
+    });
+
+    setTimeout(() => ctx.close(), 2000);
+  } catch { /* AudioContext not available or blocked */ }
+}
+
 async function fireNotification(title: string, body: string, noteId?: string) {
+  playChime();
   if (Notification.permission !== 'granted') return;
   if ('serviceWorker' in navigator) {
     try {

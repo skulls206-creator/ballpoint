@@ -6,7 +6,7 @@ import {
   Plus, ListTodo, Calendar, Clock, CheckCheck, Menu,
 } from 'lucide-react';
 import { useNotesStore } from '../lib/store';
-import { selectTasksByView, selectTaskCounts, Task, TaskView } from '../lib/tasks';
+import { selectTasksByView, selectTaskCounts, selectAllActiveTasks, Task, TaskView } from '../lib/tasks';
 import { cn } from '../lib/utils';
 
 // Convert a Date to the "YYYY-MM-DDTHH:mm" format that datetime-local inputs
@@ -215,6 +215,18 @@ function TaskRow({ task }: { task: Task }) {
   );
 }
 
+// ─── Section Divider (for unified inbox) ─────────────────────────────────────
+function SectionLabel({ label, count }: { label: string; count: number }) {
+  return (
+    <div className="flex items-center gap-2 px-3 py-1.5 bg-muted/30 border-b border-border/30">
+      <span className="text-[9px] font-semibold uppercase tracking-widest text-muted-foreground/50">
+        {label}
+      </span>
+      <span className="text-[9px] text-muted-foreground/40 tabular-nums">{count}</span>
+    </div>
+  );
+}
+
 // ─── Task List ────────────────────────────────────────────────────────────────
 export function TaskList({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
   const activeSection  = useNotesStore(s => s.activeSection);
@@ -231,17 +243,30 @@ export function TaskList({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
     [tasks, view]
   );
 
+  const grouped = useMemo(
+    () => view === 'inbox' ? selectAllActiveTasks(tasks) : null,
+    [tasks, view]
+  );
+
   const counts = useMemo(() => selectTaskCounts(tasks), [tasks]);
 
   const viewMeta: Record<TaskView, { label: string; icon: React.ReactNode; empty: string }> = {
-    inbox:    { label: 'Inbox',     icon: <ListTodo size={13} />,   empty: 'No tasks without a due date' },
+    inbox:    { label: 'Inbox',     icon: <ListTodo size={13} />,   empty: 'All caught up!' },
     today:    { label: 'Today',     icon: <Clock size={13} />,      empty: 'Nothing due today — nice!' },
     upcoming: { label: 'Upcoming',  icon: <Calendar size={13} />,   empty: 'No upcoming tasks' },
     done:     { label: 'Completed', icon: <CheckCheck size={13} />, empty: 'Nothing completed yet' },
   };
 
   const meta = viewMeta[view];
-  const count = counts[view];
+
+  // Inbox count = all active tasks (today + upcoming + no-date)
+  const count = view === 'inbox'
+    ? counts.today + counts.upcoming + counts.inbox
+    : counts[view];
+
+  // Whether the unified inbox is entirely empty
+  const inboxEmpty = view === 'inbox' && grouped !== null
+    && grouped.today.length === 0 && grouped.upcoming.length === 0 && grouped.inbox.length === 0;
 
   return (
     <div className="w-full md:w-[240px] shrink-0 flex flex-col h-full border-r border-border bg-card/40 overflow-hidden">
@@ -278,16 +303,51 @@ export function TaskList({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
 
       {/* Task list */}
       <div className="flex-1 overflow-y-auto">
-        {filteredTasks.length === 0 ? (
-          <div className="flex flex-col items-center justify-center h-full text-muted-foreground/40 px-4 text-center">
-            <ListTodo size={28} className="mb-2 opacity-30" />
-            <p className="text-[11px]">{meta.empty}</p>
-            {!hasVault && (
-              <p className="text-[10px] mt-1 opacity-60">Open a vault to see tasks</p>
-            )}
-          </div>
+        {/* ── Unified Inbox: three sections ──────────────────────── */}
+        {view === 'inbox' && grouped !== null ? (
+          inboxEmpty ? (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground/40 px-4 text-center">
+              <ListTodo size={28} className="mb-2 opacity-30" />
+              <p className="text-[11px]">{meta.empty}</p>
+              {!hasVault && (
+                <p className="text-[10px] mt-1 opacity-60">Open a vault to see tasks</p>
+              )}
+            </div>
+          ) : (
+            <>
+              {grouped.today.length > 0 && (
+                <>
+                  <SectionLabel label="Today" count={grouped.today.length} />
+                  {grouped.today.map(task => <TaskRow key={task.id} task={task} />)}
+                </>
+              )}
+              {grouped.upcoming.length > 0 && (
+                <>
+                  <SectionLabel label="Upcoming" count={grouped.upcoming.length} />
+                  {grouped.upcoming.map(task => <TaskRow key={task.id} task={task} />)}
+                </>
+              )}
+              {grouped.inbox.length > 0 && (
+                <>
+                  <SectionLabel label="No date" count={grouped.inbox.length} />
+                  {grouped.inbox.map(task => <TaskRow key={task.id} task={task} />)}
+                </>
+              )}
+            </>
+          )
         ) : (
-          filteredTasks.map(task => <TaskRow key={task.id} task={task} />)
+          /* ── Other views: flat list ─────────────────────────────── */
+          filteredTasks.length === 0 ? (
+            <div className="flex flex-col items-center justify-center h-full text-muted-foreground/40 px-4 text-center">
+              <ListTodo size={28} className="mb-2 opacity-30" />
+              <p className="text-[11px]">{meta.empty}</p>
+              {!hasVault && (
+                <p className="text-[10px] mt-1 opacity-60">Open a vault to see tasks</p>
+              )}
+            </div>
+          ) : (
+            filteredTasks.map(task => <TaskRow key={task.id} task={task} />)
+          )
         )}
       </div>
     </div>

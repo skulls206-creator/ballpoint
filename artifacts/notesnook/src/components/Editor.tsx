@@ -104,6 +104,74 @@ function insertLink(
   });
 }
 
+/**
+ * Handle Enter key inside the textarea to continue list/task prefixes.
+ * - `- `, `- [ ] `, `- [x] `, `> `, `1. ` all continue on the next line.
+ * - Pressing Enter on an empty list item (just the prefix) exits list mode.
+ */
+function handleListContinuation(
+  e: React.KeyboardEvent<HTMLTextAreaElement>,
+  onChange: (val: string) => void,
+) {
+  if (e.key !== 'Enter' || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+
+  const ta = e.currentTarget;
+  const { selectionStart: pos, selectionEnd: end, value } = ta;
+  if (pos !== end) return; // don't intercept when text is selected
+
+  // Find start of the current line
+  const lineStart = value.lastIndexOf('\n', pos - 1) + 1;
+  const currentLine = value.slice(lineStart, pos);
+
+  // Ordered: task-done before task-open before bullet so regex doesn't mis-match
+  const patterns: [RegExp, string | null][] = [
+    [/^(\s*- \[)[xX](\] )/, '$1 $2'],   // - [x] → - [ ]
+    [/^(\s*- \[ \] )/, null],             // - [ ]
+    [/^(\s*- )/, null],                   // -
+    [/^(\s*> )/, null],                   // >
+    [/^(\s*\d+\. )/, null],               // 1.
+  ];
+
+  let prefix: string | null = null;
+  for (const [re, replacement] of patterns) {
+    const m = currentLine.match(re);
+    if (m) {
+      // For task-done: transform [x] → [ ] for the new line
+      prefix = replacement
+        ? currentLine.slice(0, m[0].length).replace(re, replacement)
+        : m[1] ?? m[0];
+      break;
+    }
+  }
+
+  if (prefix === null) return; // not a list line — let browser handle Enter
+
+  e.preventDefault();
+
+  const itemContent = currentLine.slice(prefix.length).trim();
+
+  if (itemContent === '') {
+    // Empty item → exit list mode: strip the prefix from the current line
+    const newValue = value.slice(0, lineStart) + value.slice(lineStart + prefix.length);
+    onChange(newValue);
+    requestAnimationFrame(() => {
+      ta.focus();
+      ta.setSelectionRange(lineStart, lineStart);
+    });
+    return;
+  }
+
+  // Insert newline + prefix after cursor
+  const insert = '\n' + prefix;
+  const newValue = value.slice(0, pos) + insert + value.slice(pos);
+  const newPos = pos + insert.length;
+  onChange(newValue);
+  requestAnimationFrame(() => {
+    ta.focus();
+    ta.setSelectionRange(newPos, newPos);
+  });
+}
+
 function insertImage(
   textarea: HTMLTextAreaElement,
   onChange: (val: string) => void
@@ -1792,6 +1860,7 @@ export function Editor({ onBack }: { onBack?: () => void }) {
                 disabled={isReadOnly}
                 placeholder={isReadOnly ? "(Note is in trash — restore to edit)" : "Start writing in Markdown..."}
                 spellCheck={true}
+                onKeyDown={!isReadOnly ? e => handleListContinuation(e, handleContentChange) : undefined}
                 onMouseUp={!isReadOnly ? handleTextareaMouseUp : undefined}
                 onKeyUp={!isReadOnly ? handleTextareaKeyUp : undefined}
                 onContextMenu={!isReadOnly ? e => { e.preventDefault(); setSelectionBar(null); setCtxMenu({ x: e.clientX, y: e.clientY }); } : undefined}

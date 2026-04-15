@@ -101,6 +101,29 @@ export function toggleTaskInContent(
 
 export type TaskView = 'inbox' | 'today' | 'upcoming' | 'done';
 
+export interface ActiveTaskGroups {
+  today: Task[];
+  upcoming: Task[];
+  inbox: Task[];
+}
+
+/** Returns all non-completed tasks grouped into today / upcoming / no-date sections. */
+export function selectAllActiveTasks(tasks: TaskMap): ActiveTaskGroups {
+  const all = Object.values(tasks);
+  const tmrw = tomorrowStart();
+  return {
+    today: all
+      .filter(t => !t.completed && !!t.dueDate && new Date(t.dueDate).getTime() < tmrw)
+      .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? '')),
+    upcoming: all
+      .filter(t => !t.completed && !!t.dueDate && new Date(t.dueDate).getTime() >= tmrw)
+      .sort((a, b) => (a.dueDate ?? '').localeCompare(b.dueDate ?? '')),
+    inbox: all
+      .filter(t => !t.completed && !t.dueDate)
+      .sort((a, b) => b.updatedAt - a.updatedAt),
+  };
+}
+
 function tomorrowStart(): number {
   const n = new Date();
   return new Date(n.getFullYear(), n.getMonth(), n.getDate() + 1).getTime();
