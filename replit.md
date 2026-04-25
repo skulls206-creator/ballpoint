@@ -35,6 +35,33 @@
 
 
 
+## Project-Specific Coding Rules
+
+### Pre-existing TypeScript errors — do NOT touch
+The following files have known, pre-existing TS errors that are intentionally left alone. Do not attempt to fix them as a side-effect of any other task:
+- `artifacts/notesnook/src/lib/fileSystem.ts`
+- `artifacts/notesnook/src/lib/crypto.ts`
+- `artifacts/notesnook/src/lib/lighthouseClient.ts`
+- `artifacts/notesnook/src/components/Editor.tsx` (pre-existing errors only)
+- `artifacts/notesnook/src/main.tsx` (pre-existing errors only)
+- `artifacts/notesnook/src/components/SettingsPanel.tsx` line 36
+
+Only change lines that are directly required by the current task.
+
+### Zustand selector rule
+**Never** return arrays or objects directly from a `useNotesStore` selector — they create a new reference on every render and cause infinite re-render loops. Always select primitives, then derive arrays/objects in `useMemo`:
+
+```ts
+// ✅ correct
+const tasks = useNotesStore(s => s.tasks);          // TaskMap (object identity stable)
+const filtered = useMemo(() => selectTasksByView(tasks, view), [tasks, view]);
+
+// ❌ wrong — new array reference every render
+const filtered = useNotesStore(s => selectTasksByView(s.tasks, view));
+```
+
+---
+
 ## Overview
 
 pnpm workspace monorepo using TypeScript. Each package manages its own dependencies.
