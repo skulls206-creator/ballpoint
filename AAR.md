@@ -189,3 +189,14 @@
   echo ""
   echo "Refs: Plan at .opencode/plans/ballpoint_production_readiness_plan.md"
 
+
+  echo ""
+  echo "---"
+  echo "## 2026-05-14 — Fix encryption enable/disable not working with LOCAL_USER_ID=0"
+  echo "**Author:** opencode"
+  echo "**Scope:** artifacts/notesnook/src/lib/store.ts"
+  echo "Changes:"
+  echo "- Fixed enableEncryption function: Changed 'if (!vaultHandle || !userId || encryptionKey)' to 'if (!vaultHandle || userId === null || encryptionKey)'"
+  echo "- Fixed disableEncryption function: Changed 'if (!vaultHandle || !userId || !encryptionKey)' to 'if (!vaultHandle || userId === null || !encryptionKey)'"
+  echo "" >> AAR.md && echo "State after: Encryption enable/disable buttons now work correctly when vault is initialized with LOCAL_USER_ID = 0" >> AAR.md && echo "" >> AAR.md && echo "Notes for next AI:" >> AAR.md && echo "- The app uses LOCAL_USER_ID = 0 for single-user mode (auth removed for GH Pages)" >> AAR.md && echo "- All userId checks in encryption functions must distinguish between null/undefined vs 0" >> AAR.md && echo "- Encryption functionality now works after creating a vault" >> AAR.md && echo "" >> AAR.md && echo "Refs: Plan at .opencode/plans/ballpoint_production_readiness_plan.md" >> AAR.md
+
