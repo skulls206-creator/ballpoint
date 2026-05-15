@@ -4,6 +4,9 @@ packages:
   - lib/integrations/*
   - scripts
 
+allowBuilds:
+  esbuild: set this to true or false
+
 autoInstallPeers: false
 
 catalog:
@@ -31,15 +34,15 @@ catalog:
 
 minimumReleaseAge: 1440
 
-minimumReleaseAgeExclude:
-  - '@replit/*'
-  - stripe-replit-sync
-
 onlyBuiltDependencies:
   - '@swc/core'
   - esbuild
   - msw
   - unrs-resolver
+
+minimumReleaseAgeExclude:
+  - '@replit/*'
+  - stripe-replit-sync
 
 overrides:
   '@esbuild-kit/esm-loader': npm:tsx@^4.21.0
