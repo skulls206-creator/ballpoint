@@ -34,7 +34,7 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
-      - run: pnpm approve-builds --all && pnpm install
+      - run: pnpm install --ignore-scripts && pnpm rebuild esbuild
         working-directory: .
 
       - run: pnpm run build
