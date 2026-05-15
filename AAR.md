@@ -6,7 +6,7 @@
 
 ## 2026-05-14 — Code review fixes: postMessage, R2 sync helper, vault init refactor
 **Author:** opencode
-**Commits:** (working tree, not committed)
+**Commits:** `9e376a9`
 **Scope:** `artifacts/notesnook/src/lib/store.ts`, `AAR.md`
 **Changes:**
 - **postMessage origin safety:** `notifyParent()` now uses an explicit allowlist (`ALLOWED_PARENT_ORIGINS`) with wildcard matching for `*.hollr.chat`, `*.khurk.xyz`, and `*.replit.dev`. The origin is resolved from `ancestorOrigins` or `document.referrer` and checked against the allowlist. If no known parent is detected, `postMessage` is skipped entirely — never `'*'`.
