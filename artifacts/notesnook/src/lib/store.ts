@@ -664,7 +664,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   saveActiveNote: async () => {
     const { activeNoteId, vaultHandle, proxyVault, notes, activeContent, encryptionKey, userId } = get();
-    if (!activeNoteId || !userId) return;
+    if (!activeNoteId || userId === null) return;
     const note = notes.find(n => n.id === activeNoteId);
     if (!note) return;
 
@@ -716,7 +716,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   createNewNote: async (title = 'Untitled') => {
     const { vaultHandle, proxyVault, userId, notes, isDirty, activeNoteId, noteSizes } = get();
-    if (!userId) return;
+    if (userId === null) return;
     if (isDirty && activeNoteId) await get().saveActiveNote();
 
     // Guard: need either a real vault or proxy vault
@@ -768,7 +768,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   renameNote: async (id, newTitle) => {
     const { vaultHandle, proxyVault, userId, notes, metadata, activeNoteId } = get();
-    if (!userId || !newTitle.trim()) return;
+    if (userId === null || !newTitle.trim()) return;
     if (!vaultHandle && proxyVault === null) return;
     const note = notes.find(n => n.id === id);
     if (!note || note.title === newTitle) return;
@@ -841,7 +841,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   trashNote: async (id) => {
     const { userId, metadata, r2Token: rt6, storageMode: sm6 } = get();
-    if (!userId) return;
+    if (userId === null) return;
     const newMeta = await updateNoteMeta(userId, id, { status: 'trashed', trashedAt: Date.now() }, { ...metadata });
     set({ metadata: newMeta });
     await get().refreshNotes();
@@ -922,7 +922,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   toggleFavorite: async (id) => {
     const { userId, metadata } = get();
-    if (!userId) return;
+    if (userId === null) return;
     const current = metadata[id]?.isFavorite ?? false;
     const newMeta = await updateNoteMeta(userId, id, { isFavorite: !current }, { ...metadata });
     set({ metadata: newMeta });

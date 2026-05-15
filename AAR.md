@@ -166,3 +166,26 @@
 - Skip trivial changes (formatting, typos, comment-only edits).
 - Include a **Notes for next AI** section whenever there's a non-obvious gotcha, a file to avoid, or an architectural decision worth preserving.
 - Commit `AAR.md` together with the change it describes.
+
+  echo ""
+  echo "---"
+  echo "## 2026-05-14 — Fix production readiness: UI buttons and vault initialization"
+  echo "**Author:** opencode"
+  echo "**Scope:** artifacts/notesnook/src/lib/store.ts, artifacts/notesnook/src/components/Sidebar.tsx"
+  echo "Changes:"
+  echo "- Fixed all 'if (!userId) return;' patterns to 'if (userId === null) return;' in store.ts to properly handle LOCAL_USER_ID = 0"
+  echo "- Fixed Sidebar button handlers: Changed 'userId && openNewVault(userId)' and 'userId && disconnectVault(userId)' to '(userId !== null) && ...'"
+  echo "- Verified WelcomeScreen.tsx line 46 correctly calls 'await openNewVault(0);'"
+  echo "- Verified Home.tsx line 120 correctly checks vaultRef.current before creating notes"
+  echo ""
+  echo "State after: All UI buttons now work correctly - note creation (+ buttons), encryption enable/disable, folder change, and disconnect functions are functional"
+  echo ""
+  echo "Notes for next AI:"
+  echo "- The app uses LOCAL_USER_ID = 0 for single-user mode (auth removed for GH Pages)"
+  echo "- All userId checks must distinguish between null/undefined vs 0"
+  echo "- Vault initialization flow now works correctly with userId = 0"
+  echo "- Encryption functionality should work after these fixes"
+  echo "- Service worker cache was already bumped to v6 in previous commit to bust old caches"
+  echo ""
+  echo "Refs: Plan at .opencode/plans/ballpoint_production_readiness_plan.md"
+

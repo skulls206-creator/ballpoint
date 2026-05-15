@@ -284,18 +284,18 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
               <div className="rounded-lg border border-sidebar-border/60 overflow-hidden">
                 {vaultHandle ? (
                   <>
-                    <button onClick={() => userId && openNewVault(userId)}
+                    <button onClick={() => (userId !== null) && openNewVault(userId)}
                       className="w-full flex items-center gap-2 px-2.5 py-2 text-[11px] text-sidebar-foreground/70 hover:bg-sidebar-accent transition-colors">
                       <FolderOpen size={11} className="text-primary/60" /> Change folder
                     </button>
                     <div className="h-px bg-sidebar-border/40 mx-2" />
-                    <button onClick={() => userId && disconnectVault(userId)}
+                    <button onClick={() => (userId !== null) && disconnectVault(userId)}
                       className="w-full flex items-center gap-2 px-2.5 py-2 text-[11px] text-destructive/70 hover:bg-destructive/8 transition-colors">
                       <FolderX size={11} /> Disconnect
                     </button>
                   </>
                 ) : (
-                  <button onClick={() => userId && openNewVault(userId)}
+                  <button onClick={() => (userId !== null) && openNewVault(userId)}
                     className="w-full flex items-center gap-2 px-2.5 py-2 text-[11px] text-sidebar-foreground/70 hover:bg-sidebar-accent transition-colors">
                     <FolderOpen size={11} className="text-primary/60" /> Open vault
                   </button>
