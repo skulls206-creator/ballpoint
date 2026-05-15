@@ -866,7 +866,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   restoreNote: async (id) => {
     const { userId, metadata } = get();
-    if (!userId) return;
+    if (userId === null) return;
     const newMeta = await updateNoteMeta(userId, id, { status: 'active', trashedAt: undefined }, { ...metadata });
     set({ metadata: newMeta });
     await get().refreshNotes();
@@ -874,7 +874,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   permanentlyDeleteNote: async (id) => {
     const { vaultHandle, proxyVault, userId, activeNoteId, notes } = get();
-    if (!userId) return;
+    if (userId === null) return;
     if (!vaultHandle && proxyVault === null) return;
 
     if (proxyVault !== null) {
@@ -935,7 +935,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   togglePinned: async (id) => {
     const { userId, metadata } = get();
-    if (!userId) return;
+    if (userId === null) return;
     const current = metadata[id]?.isPinned ?? false;
     const newMeta = await updateNoteMeta(userId, id, { isPinned: !current }, { ...metadata });
     set({ metadata: newMeta });
@@ -945,7 +945,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   lockNote: async (id, password) => {
     const { userId, metadata } = get();
-    if (!userId) return;
+    if (userId === null) return;
     const enc = new TextEncoder();
     const hashBuf = await crypto.subtle.digest('SHA-256', enc.encode(password));
     const lockHash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -961,7 +961,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   removeLock: async (id) => {
     const { userId, metadata } = get();
-    if (!userId) return;
+    if (userId === null) return;
     const newMeta = await updateNoteMeta(userId, id, { locked: false, lockHash: undefined }, { ...metadata });
     set({ metadata: newMeta });
     const next = new Set(get().sessionUnlockedIds);
@@ -985,7 +985,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   setNoteStatus: async (id, status) => {
     const { userId, metadata } = get();
-    if (!userId) return;
+    if (userId === null) return;
     const newMeta = await updateNoteMeta(userId, id, { status }, { ...metadata });
     set({ metadata: newMeta });
     syncMetaAndTasksToR2();
@@ -994,7 +994,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   setTags: async (id, tags) => {
     const { userId, metadata } = get();
-    if (!userId) return;
+    if (userId === null) return;
     const newMeta = await updateNoteMeta(userId, id, { tags }, { ...metadata });
     set({ metadata: newMeta });
     syncMetaAndTasksToR2();
@@ -1003,7 +1003,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   setReminder: async (id, reminderTime) => {
     const { userId, metadata } = get();
-    if (!userId) return;
+    if (userId === null) return;
     const updates = reminderTime
       ? { hasReminder: true, reminderTime, reminderStatus: 'pending' as const }
       : { hasReminder: false, reminderTime: undefined, reminderStatus: undefined };
@@ -1015,7 +1015,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   dismissReminder: async (id) => {
     const { userId, metadata } = get();
-    if (!userId) return;
+    if (userId === null) return;
     const newMeta = await updateNoteMeta(userId, id, { reminderStatus: 'dismissed' }, { ...metadata });
     set({ metadata: newMeta });
     syncMetaAndTasksToR2();
@@ -1024,7 +1024,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   fireReminder: async (id) => {
     const { userId, metadata } = get();
-    if (!userId) return;
+    if (userId === null) return;
     const newMeta = await updateNoteMeta(userId, id, { reminderStatus: 'fired' }, { ...metadata });
     set({ metadata: newMeta });
     syncMetaAndTasksToR2();
@@ -1035,7 +1035,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   syncNoteTasks: async (noteId, noteTitle, content) => {
     const { userId, tasks } = get();
-    if (!userId) return;
+    if (userId === null) return;
     const parsed = parseTasksFromContent(noteId, noteTitle, content);
     const otherTasks = Object.fromEntries(
       Object.entries(tasks).filter(([, t]) => t.noteId !== noteId)
@@ -1048,7 +1048,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   toggleTask: async (taskId) => {
     const { userId, tasks, activeNoteId, activeContent, notes, encryptionKey, proxyVault, proxyContent, r2Token } = get();
-    if (!userId) return;
+    if (userId === null) return;
     const task = tasks[taskId];
     if (!task) return;
 
@@ -1106,7 +1106,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   setTaskDueDate: async (taskId, dueDate) => {
     const { userId, tasks, r2Token: rt5, storageMode: sm5 } = get();
-    if (!userId) return;
+    if (userId === null) return;
     const task = tasks[taskId];
     if (!task) return;
     const updated: Task = { ...task, dueDate: dueDate ?? undefined, updatedAt: Date.now() };
@@ -1166,7 +1166,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   unlockVault: async (password) => {
     const { vaultHandle, userId, notes, tasks: existingTasks } = get();
-    if (!vaultHandle || !userId) return false;
+    if (!vaultHandle || userId === null) return false;
     const keyFileContent = await readVaultFile(vaultHandle, VAULT_KEY_FILENAME);
     if (!keyFileContent) return false;
     const key = await openKeyFile(keyFileContent, password);
@@ -1285,7 +1285,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   backupNow: async (token) => {
     const { userId, notes, metadata, encryptionKey } = get();
-    if (!userId) return;
+    if (userId === null) return;
 
     set({ syncStatus: 'uploading', syncError: null });
     try {
@@ -1328,7 +1328,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   previewRestoreFromCid: async (token, cid) => {
     const { userId } = get();
-    if (!userId) throw new Error('Not signed in');
+    if (userId === null) throw new Error('Not signed in');
     set({ syncStatus: 'downloading', syncError: null });
     try {
       const snapshots = await _restoreFromCid(token, userId, cid);
@@ -1401,7 +1401,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   restoreFromCid: async (token, cid) => {
     const { userId } = get();
-    if (!userId) return;
+    if (userId === null) return;
     try {
       const snapshots = await get().previewRestoreFromCid(token, cid);
       await get().restoreSnapshots(snapshots);
@@ -1410,14 +1410,14 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   loadSyncHistory: async () => {
     const { userId } = get();
-    if (!userId) return;
+    if (userId === null) return;
     const history = await _loadSyncHistory(userId);
     set({ syncHistory: history, lastSyncRecord: history[0] ?? null });
   },
 
   markPendingUpload: async (noteId) => {
     const { userId, metadata } = get();
-    if (!userId) return;
+    if (userId === null) return;
     const current = metadata[noteId]?.remoteStatus;
     if (current === 'synced' || current === undefined) {
       const newMeta = await updateNoteMeta(userId, noteId, { remoteStatus: 'pendingUpload' }, { ...metadata });
@@ -1585,7 +1585,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   enableR2Sync: async (token, password) => {
     const { userId, vaultHandle, encryptionKey } = get();
-    if (!userId || !vaultHandle) throw new Error('Open a local vault first to enable cloud sync.');
+    if (userId === null || !vaultHandle) throw new Error('Open a local vault first to enable cloud sync.');
     set({ r2Status: 'syncing', r2Error: null });
     try {
       // Resolve the R2 vault key.  We always use the R2 password-derived key
@@ -1659,7 +1659,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   disableR2Sync: async () => {
     const { userId } = get();
-    if (!userId) return;
+    if (userId === null) return;
     stopR2BackgroundSync();
     localStorage.removeItem('ballpoint-r2-sync');
     localStorage.removeItem(`ballpoint-r2-key-${userId}`);
@@ -1672,7 +1672,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   reconnectR2Sync: async (token) => {
     const { userId, storageMode } = get();
-    if (!userId || storageMode !== 'local+r2') return;
+    if (userId === null || storageMode !== 'local+r2') return;
     set({ r2Token: token });
     startR2BackgroundSync(userId, () => get().r2Token);
     flushR2Queue(userId, token).catch(() => {});
@@ -1680,7 +1680,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   syncR2Now: async () => {
     const { userId, r2Token } = get();
-    if (!userId || !r2Token) return;
+    if (userId === null || !r2Token) return;
     set({ r2Status: 'syncing', r2Error: null });
     try {
       const result = await flushR2Queue(userId, r2Token);
