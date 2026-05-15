@@ -6,7 +6,7 @@
 
 ## 2026-05-14 — Auth removed for GitHub Pages static deployment
 **Author:** opencode
-**Commits:** (working tree, not committed)
+**Commits:** `09167a7`
 **Scope:** `App.tsx`, `Home.tsx`, `Sidebar.tsx`, `WelcomeScreen.tsx`, `authContext.tsx`, `auth.ts` (deleted), `AuthPage.tsx` (deleted)
 **Changes:**
 - **Auth fully removed:** Deleted `lib/auth.ts` (API calls + localStorage persistence) and `pages/AuthPage.tsx`. Replaced `lib/authContext.tsx` with a stub that provides null user/token/noop callbacks — keeps all existing imports compiling.
