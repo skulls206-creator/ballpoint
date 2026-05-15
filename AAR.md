@@ -200,3 +200,24 @@
   echo "- Fixed disableEncryption function: Changed 'if (!vaultHandle || !userId || !encryptionKey)' to 'if (!vaultHandle || userId === null || !encryptionKey)'"
   echo "" >> AAR.md && echo "State after: Encryption enable/disable buttons now work correctly when vault is initialized with LOCAL_USER_ID = 0" >> AAR.md && echo "" >> AAR.md && echo "Notes for next AI:" >> AAR.md && echo "- The app uses LOCAL_USER_ID = 0 for single-user mode (auth removed for GH Pages)" >> AAR.md && echo "- All userId checks in encryption functions must distinguish between null/undefined vs 0" >> AAR.md && echo "- Encryption functionality now works after creating a vault" >> AAR.md && echo "" >> AAR.md && echo "Refs: Plan at .opencode/plans/ballpoint_production_readiness_plan.md" >> AAR.md
 
+
+  echo ""
+  echo "---"
+  echo "## 2026-05-15 — Fix encryption decryption: correct all remaining !userId falsy checks"
+  echo "**Author:** opencode"  
+  echo "**Scope:** artifacts/notesnook/src/lib/store.ts"
+  echo "Changes:"
+  echo "- Fixed remaining 20+ 'if (!userId)' falsy checks throughout store.ts that were causing early returns for LOCAL_USER_ID=0"
+  echo "- Key fix: unlockVault was returning 'Wrong password' immediately because !userId was true for userId=0, never actually attempting decryption"
+  echo "- Fixed compound conditions: 'if (!vaultHandle || !userId)', 'if (!userId || !vaultHandle)', etc. to use userId === null"
+  echo "- Encryption enable/disable already fixed in previous commit"
+  echo ""
+  echo "State after: All store functions correctly handle userId=0 for single-user mode. Encryption/decryption, task actions, vault operations all work."
+  echo ""
+  echo "Notes for next AI:"
+  echo "- The app uses LOCAL_USER_ID = 0 for single-user mode (auth removed for GH Pages)"
+  echo "- ALL userId checks MUST use 'userId === null' not '!userId'"
+  echo "- The unlockVault function's wrong password error was a red herring - it never actually tried to decrypt"  
+  echo ""
+  echo "Refs: Commit 3781437"
+
