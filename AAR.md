@@ -4,6 +4,23 @@
 
 ---
 
+## 2026-05-14 — Auth removed for GitHub Pages static deployment
+**Author:** opencode
+**Commits:** (working tree, not committed)
+**Scope:** `App.tsx`, `Home.tsx`, `Sidebar.tsx`, `WelcomeScreen.tsx`, `authContext.tsx`, `auth.ts` (deleted), `AuthPage.tsx` (deleted)
+**Changes:**
+- **Auth fully removed:** Deleted `lib/auth.ts` (API calls + localStorage persistence) and `pages/AuthPage.tsx`. Replaced `lib/authContext.tsx` with a stub that provides null user/token/noop callbacks — keeps all existing imports compiling.
+- **App.tsx:** Removed `AuthProvider` wrapper and `AppRouter` (auth gating). Router renders Home directly behind `<Switch>` — no login screen.
+- **Home.tsx:** Uses `LOCAL_USER_ID = 0` for store init. Removed R2 token reconnection effect (no token with stub auth). Deleted `useAuth` import and `storageMode`/`reconnectR2Sync` selectors.
+- **Sidebar.tsx:** Removed user account card (avatar, email, sign out), cloud sync button that opened `SettingsPanel`, and `SettingsPanel` import. Removed `LogOut`, `Cloud` icons from import.
+- **WelcomeScreen.tsx:** Removed `useAuth()`, R2 cloud vault handlers (`handleOpenR2`, `handleCreateR2`), cloud vault UI blocks (`r2Mode` unlock screen, `!isFileSystemSupported` cloud-only fallback, `desktopCloudMode` toggle), and "Use Cloud Vault (R2)" button. Local folder picker calls `openNewVault(0)` directly. Unsupported-browser case shows a message instead of a cloud vault prompt.
+**State after:** App boots to a WelcomeScreen with "Select Notes Folder" on first launch — no login/register/sign-out anywhere. R2 and Lighthouse sync methods are dead code (no token = no-ops). The app is a 100% local-first PWA ready for static hosting.
+**Notes for next AI:**
+- `main.tsx` still requests notification permissions and registers the SW — that's fine, it doesn't depend on auth.
+- `SettingsPanel.tsx` is dead code (no longer imported). Leave on disk per surgical-changes rule.
+- `lighthouseClient.ts` and `r2Client.ts` are dead code (no token ever). Leave on disk.
+- If cloud sync is ever re-added, the auth system needs a full rebuild with a separate hosted backend.
+
 ## 2026-05-14 — Code review fixes: postMessage, R2 sync helper, vault init refactor
 **Author:** opencode
 **Commits:** `9e376a9`

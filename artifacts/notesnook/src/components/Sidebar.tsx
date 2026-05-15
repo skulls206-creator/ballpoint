@@ -1,18 +1,16 @@
 import { useState, useMemo, useEffect, useRef } from 'react';
 import {
   FileText, Star, Archive, Trash2, Tag, ChevronDown, ChevronRight,
-  Plus, FolderOpen, FolderX, Sun, Moon, Settings, LogOut, Search,
+  Plus, FolderOpen, FolderX, Sun, Moon, Settings, Search,
   Download, CheckCircle2, ListTodo, Clock, Calendar, CheckCheck,
   FilePlus, RotateCcw, Trash, TagIcon,
-  Lock, LockOpen, ShieldCheck, X, Cloud,
+  Lock, LockOpen, ShieldCheck, X,
 } from 'lucide-react';
 import { useNotesStore, SidebarSection, STORAGE_LIMIT_BYTES } from '../lib/store';
-import { useAuth } from '../lib/authContext';
 import { AccentColor, getAllTags } from '../lib/metadata';
 import { selectTaskCounts } from '../lib/tasks';
 import { usePWAInstall } from '../lib/usePWAInstall';
 import { cn } from '../lib/utils';
-import { SettingsPanel } from './SettingsPanel';
 
 const ACCENT_COLORS: { id: AccentColor; label: string; hsl: string }[] = [
   { id: 'violet', label: 'Violet', hsl: '252 87% 67%' },
@@ -31,7 +29,6 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
   onOpenCommandPalette: () => void;
   onMobileClose?: () => void;
 }) {
-  const { user, logout } = useAuth();
   const { canInstall, isInstalled, install } = usePWAInstall();
 
   const activeSection  = useNotesStore(s => s.activeSection);
@@ -76,7 +73,6 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
 
   const [tagsOpen,        setTagsOpen]        = useState(true);
   const [settingsOpen,    setSettingsOpen]    = useState(false);
-  const [syncPanelOpen,   setSyncPanelOpen]   = useState(false);
   const [showEncryption,  setShowEncryption]  = useState(false);
   const [encPwd,          setEncPwd]          = useState('');
   const [encPwd2,         setEncPwd2]         = useState('');
@@ -211,10 +207,6 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
             className="w-7 h-7 md:w-5 md:h-5 rounded flex items-center justify-center text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors">
             {theme === 'dark' ? <Sun size={13} className="md:w-[11px] md:h-[11px]" /> : <Moon size={13} className="md:w-[11px] md:h-[11px]" />}
           </button>
-          <button onClick={() => setSyncPanelOpen(true)} title="Cloud Sync"
-            className="w-7 h-7 md:w-5 md:h-5 rounded flex items-center justify-center text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors">
-            <Cloud size={13} className="md:w-[11px] md:h-[11px]" />
-          </button>
           <button onClick={() => setSettingsOpen(p => !p)} title="Settings"
             className={cn("w-7 h-7 md:w-5 md:h-5 rounded flex items-center justify-center text-sidebar-foreground/40 hover:text-sidebar-foreground hover:bg-sidebar-accent transition-colors",
               settingsOpen && "bg-sidebar-accent text-sidebar-foreground")}>
@@ -233,24 +225,6 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
       {/* Settings Panel */}
       {settingsOpen && (
         <div className="border-b border-sidebar-border bg-sidebar overflow-y-auto max-h-[60vh]">
-          {/* Account card — top */}
-          {user && (
-            <div className="mx-3 mt-3 mb-2 rounded-xl overflow-hidden border border-sidebar-border/60">
-              <div className="bg-gradient-to-br from-primary/20 via-primary/10 to-transparent px-3 py-2.5 flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-[13px] font-bold uppercase shrink-0 shadow-sm">
-                  {user.email[0]}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[12px] font-semibold text-sidebar-foreground truncate">{user.email}</p>
-                  <p className="text-[10px] text-sidebar-foreground/50">Personal account</p>
-                </div>
-              </div>
-              <button onClick={logout}
-                className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-destructive/80 hover:bg-destructive/8 hover:text-destructive transition-colors border-t border-sidebar-border/40">
-                <LogOut size={11} /> Sign out
-              </button>
-            </div>
-          )}
 
           <div className="px-3 pb-3 space-y-3">
 
@@ -587,9 +561,6 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
         ))}
       </div>
     )}
-
-    {/* Cloud Sync panel modal */}
-    {syncPanelOpen && <SettingsPanel onClose={() => setSyncPanelOpen(false)} />}
     </>
   );
 }

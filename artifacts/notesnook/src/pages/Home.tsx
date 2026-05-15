@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Lock, Menu } from 'lucide-react';
 import { useNotesStore } from '../lib/store';
-import { useAuth } from '../lib/authContext';
 import { WelcomeScreen } from '../components/WelcomeScreen';
 import { Sidebar } from '../components/Sidebar';
 import { NoteList } from '../components/NoteList';
 import { Editor } from '../components/Editor';
 import { CommandPalette } from '../components/CommandPalette';
 import { cn } from '../lib/utils';
+
+const LOCAL_USER_ID = 0;
 
 // ─── Vault Lock Screen ────────────────────────────────────────────────────────
 function VaultLockScreen({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
@@ -75,8 +76,6 @@ function VaultLockScreen({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
 }
 
 export default function Home() {
-  const { user, token } = useAuth();
-
   // Only subscribe to primitives that this component actually needs
   const vaultHandle       = useNotesStore(s => s.vaultHandle);
   const proxyVault        = useNotesStore(s => s.proxyVault);
@@ -84,10 +83,8 @@ export default function Home() {
   const isVaultEncrypted  = useNotesStore(s => s.isVaultEncrypted);
   const encryptionKey     = useNotesStore(s => s.encryptionKey);
   const activeNoteId      = useNotesStore(s => s.activeNoteId);
-  const storageMode       = useNotesStore(s => s.storageMode);
   const init              = useNotesStore(s => s.init);
   const reset             = useNotesStore(s => s.reset);
-  const reconnectR2Sync   = useNotesStore(s => s.reconnectR2Sync);
 
   const [cmdOpen,      setCmdOpen]      = useState(false);
   const [sidebarOpen,  setSidebarOpen]  = useState(false);
@@ -108,20 +105,9 @@ export default function Home() {
   const closeSidebar = useCallback(() => setSidebarOpen(false), []);
 
   useEffect(() => {
-    if (user) {
-      init(user.id);
-    } else {
-      reset();
-    }
-  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Re-attach R2 token and restart background sync after reload in local+r2 mode.
-  // storageMode is restored from localStorage in init(); token is available from auth.
-  useEffect(() => {
-    if (storageMode === 'local+r2' && token) {
-      reconnectR2Sync(token);
-    }
-  }, [storageMode, token]); // eslint-disable-line react-hooks/exhaustive-deps
+    init(LOCAL_USER_ID);
+    return () => reset();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keyboard shortcut — use a ref so the handler never needs to be re-registered
   const vaultRef = useRef(vaultHandle);
