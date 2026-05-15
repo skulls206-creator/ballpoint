@@ -1,5 +1,5 @@
 // Ballpoint Service Worker — offline-first + notification support
-const CACHE_NAME = 'ballpoint-v5';
+const CACHE_NAME = 'ballpoint-v6';
 const STATIC_ASSETS = [
   '/',
   '/manifest.webmanifest',
