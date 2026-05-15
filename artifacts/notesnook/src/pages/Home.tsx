@@ -5,6 +5,7 @@ import { WelcomeScreen } from '../components/WelcomeScreen';
 import { Sidebar } from '../components/Sidebar';
 import { NoteList } from '../components/NoteList';
 import { Editor } from '../components/Editor';
+import { TaskWorkspace } from '../components/TaskWorkspace';
 import { CommandPalette } from '../components/CommandPalette';
 import { cn } from '../lib/utils';
 
@@ -83,8 +84,11 @@ export default function Home() {
   const isVaultEncrypted  = useNotesStore(s => s.isVaultEncrypted);
   const encryptionKey     = useNotesStore(s => s.encryptionKey);
   const activeNoteId      = useNotesStore(s => s.activeNoteId);
+  const activeSection     = useNotesStore(s => s.activeSection);
   const init              = useNotesStore(s => s.init);
   const reset             = useNotesStore(s => s.reset);
+
+  const isTaskView = activeSection.type.startsWith('tasks-');
 
   const [cmdOpen,      setCmdOpen]      = useState(false);
   const [sidebarOpen,  setSidebarOpen]  = useState(false);
@@ -94,11 +98,11 @@ export default function Home() {
   // also switch to editor. NoteList taps call onNoteOpen directly.
   const prevNoteId = useRef(activeNoteId);
   useEffect(() => {
-    if (activeNoteId && activeNoteId !== prevNoteId.current) {
+    if (!isTaskView && activeNoteId && activeNoteId !== prevNoteId.current) {
       setMobileView('editor');
     }
     prevNoteId.current = activeNoteId;
-  }, [activeNoteId]);
+  }, [activeNoteId, isTaskView]);
 
   const handleNoteOpen = useCallback(() => setMobileView('editor'), []);
 
@@ -111,18 +115,25 @@ export default function Home() {
 
   // Keyboard shortcut — use a ref so the handler never needs to be re-registered
   const vaultRef = useRef(vaultHandle);
+  const taskViewRef = useRef(isTaskView);
   useEffect(() => { vaultRef.current = vaultHandle; }, [vaultHandle]);
+  useEffect(() => { taskViewRef.current = isTaskView; }, [isTaskView]);
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === 'n') {
         e.preventDefault();
-        if (vaultRef.current) useNotesStore.getState().createNewNote();
+        if (!vaultRef.current) return;
+        if (taskViewRef.current) {
+          useNotesStore.getState().createTaskNote();
+        } else {
+          useNotesStore.getState().createNewNote();
+        }
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, []); // stable — reads vault from ref
+  }, []); // stable — reads vault and taskView from ref
 
   if (isLoading) {
     return (
@@ -186,21 +197,27 @@ export default function Home() {
     <div className="flex h-screen w-full bg-background overflow-hidden text-foreground relative">
       {sidebarDrawer}
 
-      {/* NoteList — full-width on mobile (list view), fixed column on desktop */}
-      <div className={cn(
-        'h-full md:flex md:flex-none',
-        mobileView === 'list' ? 'flex flex-1' : 'hidden',
-      )}>
-        <NoteList onOpenSidebar={() => setSidebarOpen(true)} onNoteOpen={handleNoteOpen} />
-      </div>
+      {isTaskView ? (
+        <TaskWorkspace onOpenSidebar={() => setSidebarOpen(true)} />
+      ) : (
+        <>
+          {/* NoteList — full-width on mobile (list view), fixed column on desktop */}
+          <div className={cn(
+            'h-full md:flex md:flex-none',
+            mobileView === 'list' ? 'flex flex-1' : 'hidden',
+          )}>
+            <NoteList onOpenSidebar={() => setSidebarOpen(true)} onNoteOpen={handleNoteOpen} />
+          </div>
 
-      {/* Editor — full-width on mobile (editor view), flex-1 on desktop */}
-      <div className={cn(
-        'h-full flex-1 min-w-0 md:flex',
-        mobileView === 'editor' ? 'flex' : 'hidden',
-      )}>
-        <Editor onBack={() => setMobileView('list')} />
-      </div>
+          {/* Editor — full-width on mobile (editor view), flex-1 on desktop */}
+          <div className={cn(
+            'h-full flex-1 min-w-0 md:flex',
+            mobileView === 'editor' ? 'flex' : 'hidden',
+          )}>
+            <Editor onBack={() => setMobileView('list')} />
+          </div>
+        </>
+      )}
 
       <CommandPalette open={cmdOpen} onOpenChange={setCmdOpen} />
     </div>
