@@ -167,81 +167,86 @@
 - Include a **Notes for next AI** section whenever there's a non-obvious gotcha, a file to avoid, or an architectural decision worth preserving.
 - Commit `AAR.md` together with the change it describes.
 
-  echo ""
-  echo "---"
-  echo "## 2026-05-14 — Fix production readiness: UI buttons and vault initialization"
-  echo "**Author:** opencode"
-  echo "**Scope:** artifacts/notesnook/src/lib/store.ts, artifacts/notesnook/src/components/Sidebar.tsx"
-  echo "Changes:"
-  echo "- Fixed all 'if (!userId) return;' patterns to 'if (userId === null) return;' in store.ts to properly handle LOCAL_USER_ID = 0"
-  echo "- Fixed Sidebar button handlers: Changed 'userId && openNewVault(userId)' and 'userId && disconnectVault(userId)' to '(userId !== null) && ...'"
-  echo "- Verified WelcomeScreen.tsx line 46 correctly calls 'await openNewVault(0);'"
-  echo "- Verified Home.tsx line 120 correctly checks vaultRef.current before creating notes"
-  echo ""
-  echo "State after: All UI buttons now work correctly - note creation (+ buttons), encryption enable/disable, folder change, and disconnect functions are functional"
-  echo ""
-  echo "Notes for next AI:"
-  echo "- The app uses LOCAL_USER_ID = 0 for single-user mode (auth removed for GH Pages)"
-  echo "- All userId checks must distinguish between null/undefined vs 0"
-  echo "- Vault initialization flow now works correctly with userId = 0"
-  echo "- Encryption functionality should work after these fixes"
-  echo "- Service worker cache was already bumped to v6 in previous commit to bust old caches"
-  echo ""
-  echo "Refs: Plan at .opencode/plans/ballpoint_production_readiness_plan.md"
+---
 
+## 2026-05-14 — Fix production readiness: UI buttons and vault initialization
+**Author:** opencode
+**Scope:** artifacts/notesnook/src/lib/store.ts, artifacts/notesnook/src/components/Sidebar.tsx
+Changes:
+- Fixed all 'if (!userId) return;' patterns to 'if (userId === null) return;' in store.ts to properly handle LOCAL_USER_ID = 0
+- Fixed Sidebar button handlers: Changed 'userId && openNewVault(userId)' and 'userId && disconnectVault(userId)' to '(userId !== null) && ...'
+- Verified WelcomeScreen.tsx line 46 correctly calls 'await openNewVault(0);'
+- Verified Home.tsx line 120 correctly checks vaultRef.current before creating notes
 
-  echo ""
-  echo "---"
-  echo "## 2026-05-14 — Fix encryption enable/disable not working with LOCAL_USER_ID=0"
-  echo "**Author:** opencode"
-  echo "**Scope:** artifacts/notesnook/src/lib/store.ts"
-  echo "Changes:"
-  echo "- Fixed enableEncryption function: Changed 'if (!vaultHandle || !userId || encryptionKey)' to 'if (!vaultHandle || userId === null || encryptionKey)'"
-  echo "- Fixed disableEncryption function: Changed 'if (!vaultHandle || !userId || !encryptionKey)' to 'if (!vaultHandle || userId === null || !encryptionKey)'"
-  echo "" >> AAR.md && echo "State after: Encryption enable/disable buttons now work correctly when vault is initialized with LOCAL_USER_ID = 0" >> AAR.md && echo "" >> AAR.md && echo "Notes for next AI:" >> AAR.md && echo "- The app uses LOCAL_USER_ID = 0 for single-user mode (auth removed for GH Pages)" >> AAR.md && echo "- All userId checks in encryption functions must distinguish between null/undefined vs 0" >> AAR.md && echo "- Encryption functionality now works after creating a vault" >> AAR.md && echo "" >> AAR.md && echo "Refs: Plan at .opencode/plans/ballpoint_production_readiness_plan.md" >> AAR.md
+State after: All UI buttons now work correctly - note creation (+ buttons), encryption enable/disable, folder change, and disconnect functions are functional
 
+Notes for next AI:
+- The app uses LOCAL_USER_ID = 0 for single-user mode (auth removed for GH Pages)
+- All userId checks must distinguish between null/undefined vs 0
+- Vault initialization flow now works correctly with userId = 0
+- Encryption functionality should work after these fixes
+- Service worker cache was already bumped to v6 in previous commit to bust old caches
 
-  echo ""
-  echo "---"
-  echo "## 2026-05-15 — Fix encryption decryption: correct all remaining !userId falsy checks"
-  echo "**Author:** opencode"  
-  echo "**Scope:** artifacts/notesnook/src/lib/store.ts"
-  echo "Changes:"
-  echo "- Fixed remaining 20+ 'if (!userId)' falsy checks throughout store.ts that were causing early returns for LOCAL_USER_ID=0"
-  echo "- Key fix: unlockVault was returning 'Wrong password' immediately because !userId was true for userId=0, never actually attempting decryption"
-  echo "- Fixed compound conditions: 'if (!vaultHandle || !userId)', 'if (!userId || !vaultHandle)', etc. to use userId === null"
-  echo "- Encryption enable/disable already fixed in previous commit"
-  echo ""
-  echo "State after: All store functions correctly handle userId=0 for single-user mode. Encryption/decryption, task actions, vault operations all work."
-  echo ""
-  echo "Notes for next AI:"
-  echo "- The app uses LOCAL_USER_ID = 0 for single-user mode (auth removed for GH Pages)"
-  echo "- ALL userId checks MUST use 'userId === null' not '!userId'"
-  echo "- The unlockVault function's wrong password error was a red herring - it never actually tried to decrypt"  
-  echo ""
-  echo "Refs: Commit 3781437"
+Refs: Plan at .opencode/plans/ballpoint_production_readiness_plan.md
 
+---
 
-  echo ""
-  echo "---"
-  echo "## 2026-05-15 — Task Workspace Overhaul (#6)"
-  echo "**Author:** opencode"
-  echo "**Scope:** 4 new/modified files"
-  echo "Changes:"
-  echo "- Home.tsx: Layout now conditionally renders TaskWorkspace when switching to any task view (Inbox/Today/Upcoming/Done), notes mode retains original three-pane layout"
-  echo "- TaskWorkspace.tsx (new): Two-column workspace with header bar (search, priority filter pills, sort toggle, prominent New task button), task list area, and collapsible detail panel"
-  echo "- TaskCard.tsx (new): Rich task card with left priority color strip, checkbox, priority chip, due date badge, linked note badge, subtask progress indicator; click opens detail panel"
-  echo "- TaskDetailPanel.tsx (new): Tabbed panel with Details tab (editable title, description textarea, priority selector, due date picker, Open linked note button) and Subtasks tab (add step input, checklist with checkbox + delete)"
-  echo "- Ctrl+N shortcut creates a task note in task view, regular note in notes view"
-  echo "- Mobile: single-pane task list with slide-up sheet for task detail"
-  echo ""
-  echo "State after: Task views feel like a standalone task manager with full workspace takeover. All task functionality preserved and enhanced."
-  echo ""
-  echo "Notes for next AI:"
-  echo "- The existing TaskList.tsx is still in the codebase but no longer rendered (NoteList handles it via isTaskSection check, but Home no longer renders NoteList in task views)"
-  echo "- crypto.randomUUID() is used for subtask IDs with a fallback for compatibility"
-  echo "- setTaskPriority(undefined) can be used to clear priority (no-priority state)"
-  echo "- The task model (tasks.ts) was extended in a previous commit with priority, description, subtasks fields and selectTasksFiltered/selectTaskCounts selectors"
-  echo ""
-  echo "Refs: Commit fece337"
+## 2026-05-14 — Fix encryption enable/disable not working with LOCAL_USER_ID=0
+**Author:** opencode
+**Scope:** artifacts/notesnook/src/lib/store.ts
+Changes:
+- Fixed enableEncryption function: Changed 'if (!vaultHandle || !userId || encryptionKey)' to 'if (!vaultHandle || userId === null || encryptionKey)'
+- Fixed disableEncryption function: Changed 'if (!vaultHandle || !userId || !encryptionKey)' to 'if (!vaultHandle || userId === null || !encryptionKey)'
+
+State after: Encryption enable/disable buttons now work correctly when vault is initialized with LOCAL_USER_ID = 0
+
+Notes for next AI:
+- The app uses LOCAL_USER_ID = 0 for single-user mode (auth removed for GH Pages)
+- All userId checks in encryption functions must distinguish between null/undefined vs 0
+- Encryption functionality now works after creating a vault
+
+Refs: Plan at .opencode/plans/ballpoint_production_readiness_plan.md
+
+---
+
+## 2026-05-15 — Fix encryption decryption: correct all remaining !userId falsy checks
+**Author:** opencode
+**Scope:** artifacts/notesnook/src/lib/store.ts
+Changes:
+- Fixed remaining 20+ 'if (!userId)' falsy checks throughout store.ts that were causing early returns for LOCAL_USER_ID=0
+- Key fix: unlockVault was returning 'Wrong password' immediately because !userId was true for userId=0, never actually attempting decryption
+- Fixed compound conditions: 'if (!vaultHandle || !userId)', 'if (!userId || !vaultHandle)', etc. to use userId === null
+- Encryption enable/disable already fixed in previous commit
+
+State after: All store functions correctly handle userId=0 for single-user mode. Encryption/decryption, task actions, vault operations all work.
+
+Notes for next AI:
+- The app uses LOCAL_USER_ID = 0 for single-user mode (auth removed for GH Pages)
+- ALL userId checks MUST use 'userId === null' not '!userId'
+- The unlockVault function's wrong password error was a red herring - it never actually tried to decrypt
+
+Refs: Commit 3781437
+
+---
+
+## 2026-05-15 — Task Workspace Overhaul (#6)
+**Author:** opencode
+**Scope:** 4 new/modified files
+Changes:
+- Home.tsx: Layout now conditionally renders TaskWorkspace when switching to any task view (Inbox/Today/Upcoming/Done), notes mode retains original three-pane layout
+- TaskWorkspace.tsx (new): Two-column workspace with header bar (search, priority filter pills, sort toggle, prominent New task button), task list area, and collapsible detail panel
+- TaskCard.tsx (new): Rich task card with left priority color strip, checkbox, priority chip, due date badge, linked note badge, subtask progress indicator; click opens detail panel
+- TaskDetailPanel.tsx (new): Tabbed panel with Details tab (editable title, description textarea, priority selector, due date picker, Open linked note button) and Subtasks tab (add step input, checklist with checkbox + delete)
+- Ctrl+N shortcut creates a task note in task view, regular note in notes view
+- Mobile: single-pane task list with slide-up sheet for task detail
+
+State after: Task views feel like a standalone task manager with full workspace takeover. All task functionality preserved and enhanced.
+
+Notes for next AI:
+- The existing TaskList.tsx is still in the codebase but no longer rendered (NoteList handles it via isTaskSection check, but Home no longer renders NoteList in task views)
+- crypto.randomUUID() is used for subtask IDs with a fallback for compatibility
+- setTaskPriority(undefined) can be used to clear priority (no-priority state)
+- The task model (tasks.ts) was extended in a previous commit with priority, description, subtasks fields and selectTasksFiltered/selectTaskCounts selectors
+
+Refs: Commit fece337
 
