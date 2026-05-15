@@ -4,6 +4,21 @@
 
 ---
 
+## 2026-05-14 — Code review fixes: postMessage, R2 sync helper, vault init refactor
+**Author:** opencode
+**Commits:** (working tree, not committed)
+**Scope:** `artifacts/notesnook/src/lib/store.ts`, `AAR.md`
+**Changes:**
+- **postMessage origin safety:** `notifyParent()` now uses an explicit allowlist (`ALLOWED_PARENT_ORIGINS`) with wildcard matching for `*.hollr.chat`, `*.khurk.xyz`, and `*.replit.dev`. The origin is resolved from `ancestorOrigins` or `document.referrer` and checked against the allowlist. If no known parent is detected, `postMessage` is skipped entirely — never `'*'`.
+- **R2 sync helper extracted:** The 15-repetition `enqueueEncryptedMetaAndTasks` + `flushR2Queue` fire-and-forget pattern consolidated into a single `syncMetaAndTasksToR2()` helper.
+- **Vault init duplication removed:** The `scanFolder → loadMetadata → set state → buildFullTaskIndex` pattern shared by `init`, `openNewVault`, and `openVaultFromHandle` extracted into `loadVaultData()` + `finishVaultInit()` helpers.
+- **localStorage safety:** `toggleTheme()` and `setAccentColor()` wrapped in `try/catch` for private browsing mode compatibility.
+**Notes for next AI:**
+- `syncMetaAndTasksToR2()` is a fire-and-forget helper; it reads latest store state via `useNotesStore.getState()`. For awaited R2 operations (e.g. `enableR2Sync`), keep the inline pattern.
+- `finishVaultInit()` uses `useNotesStore.setState()` directly, not the closure `set` — this works because Zustand's `setState` is equivalent.
+- To add a new KHURK OS origin, edit `ALLOWED_PARENT_ORIGINS` in `store.ts`.
+- Do NOT touch the pre-existing TS error files listed in `replit.md`.
+
 ## 2026-05-14 — GitHub Pages deployment + AAR seed
 **Author:** Replit Agent
 **Commits:** `a050c3c` (vite config), gh-pages branch HEAD `bc7971c`

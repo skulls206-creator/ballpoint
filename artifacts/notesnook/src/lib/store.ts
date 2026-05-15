@@ -54,9 +54,51 @@ function fakeHandle(name: string): FileSystemFileHandle {
   return { name } as unknown as FileSystemFileHandle;
 }
 
-/** Send a postMessage to the parent Hollr window */
+/** Allowed parent origins for KHURK OS proxy vault postMessage (glob patterns). */
+const ALLOWED_PARENT_ORIGINS = [
+  '*.hollr.chat',
+  '*.khurk.xyz',
+  '*.replit.dev',
+];
+
+function originMatchesPattern(origin: string, pattern: string): boolean {
+  try {
+    const hostname = new URL(origin).hostname;
+    if (pattern.startsWith('*.')) {
+      const suffix = pattern.slice(1); // '.hollr.chat'
+      return hostname === suffix.slice(1) || hostname.endsWith(suffix);
+    }
+    return origin === pattern;
+  } catch { return false; }
+}
+
+function isOriginAllowed(origin: string): boolean {
+  return ALLOWED_PARENT_ORIGINS.some(p => originMatchesPattern(origin, p));
+}
+
+/** Determine the embedding origin from the parent context. */
+function getParentOrigin(): string | null {
+  try {
+    if (window.location.ancestorOrigins?.length > 0) {
+      const o = window.location.ancestorOrigins[0];
+      if (isOriginAllowed(o)) return o;
+    }
+  } catch { /* cross-origin */ }
+  try {
+    const ref = document.referrer;
+    if (ref) {
+      const o = new URL(ref).origin;
+      if (isOriginAllowed(o)) return o;
+    }
+  } catch { /* empty referrer */ }
+  return null;
+}
+
+/** Send a postMessage to the parent KHURK OS window — only to known origins, never '*' */
 function notifyParent(msg: Record<string, unknown>) {
-  try { window.parent.postMessage(msg, '*'); } catch { /* noop if no parent */ }
+  const origin = getParentOrigin();
+  if (!origin) return;
+  try { window.parent.postMessage(msg, origin); } catch { /* noop if no parent */ }
 }
 
 interface NotesState {
@@ -342,6 +384,78 @@ async function enqueueEncryptedMetaAndTasks(
   await enqueueR2Op(userId, { op: 'put-tasks',    key: '.ballpoint-tasks', content: encTasks });
 }
 
+/**
+ * Fire-and-forget sync of current metadata + tasks to R2 (encrypted).
+ * Reads the latest store state, no-op when R2 sync is not active.
+ */
+function syncMetaAndTasksToR2(): void {
+  const { r2Token, storageMode, r2EncryptionKey, userId, metadata, tasks } = useNotesStore.getState();
+  if ((storageMode === 'r2' || storageMode === 'local+r2') && r2Token && r2EncryptionKey && userId) {
+    enqueueEncryptedMetaAndTasks(userId, r2EncryptionKey, metadata as Record<string, unknown>, tasks as Record<string, unknown>)
+      .then(() => flushR2Queue(userId, r2Token))
+      .catch(() => {});
+  }
+}
+
+// ─── Shared vault init helpers ──────────────────────────────────────────────────
+
+type VaultData = {
+  notes: NoteFile[];
+  metadata: MetadataMap;
+  tasks: TaskMap;
+  isVaultEncrypted: boolean;
+};
+
+async function loadVaultData(
+  handle: FileSystemDirectoryHandle,
+  userId: number,
+): Promise<VaultData> {
+  const [rawFiles, meta, tasks, keyFile] = await Promise.all([
+    scanFolder(handle),
+    loadAllMetadata(userId),
+    loadAllTasks(userId),
+    readVaultFile(handle, VAULT_KEY_FILENAME),
+  ]);
+  return {
+    notes: mergeWithMeta(rawFiles, meta),
+    metadata: meta,
+    tasks,
+    isVaultEncrypted: keyFile !== null,
+  };
+}
+
+function finishVaultInit(
+  handle: FileSystemDirectoryHandle,
+  data: VaultData,
+  userId: number,
+  extra: Record<string, unknown> = {},
+): void {
+  useNotesStore.setState({
+    vaultHandle: handle,
+    notes: data.notes,
+    metadata: data.metadata,
+    tasks: data.tasks,
+    isVaultEncrypted: data.isVaultEncrypted,
+    encryptionKey: null,
+    isLoading: false,
+    ...extra,
+  });
+  scanFolderSizes(handle).then(noteSizes => useNotesStore.setState({ noteSizes })).catch(() => {});
+  if (!data.isVaultEncrypted) {
+    const { selectNote } = useNotesStore.getState();
+    const lastId = localStorage.getItem(activeNoteKey(userId));
+    if (lastId && data.notes.find(n => n.id === lastId)) {
+      selectNote(lastId);
+    } else {
+      const first = data.notes.find(n => n.status === 'active');
+      if (first) selectNote(first.id);
+    }
+    buildFullTaskIndex(userId, data.notes, data.tasks, null)
+      .then(tasks => useNotesStore.setState({ tasks }))
+      .catch(() => {});
+  }
+}
+
 // ─── Store ───────────────────────────────────────────────────────────────────
 
 export const useNotesStore = create<NotesState>((set, get) => ({
@@ -407,36 +521,11 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
     const handle = await loadVault(userId);
     if (handle) {
-      const [rawFiles, meta, existingTasks, keyFile] = await Promise.all([
-        scanFolder(handle),
-        loadAllMetadata(userId),
-        loadAllTasks(userId),
-        readVaultFile(handle, VAULT_KEY_FILENAME),
-      ]);
-      const notes = mergeWithMeta(rawFiles, meta);
-      const isVaultEncrypted = keyFile !== null;
-      set({
-        vaultHandle: handle, notes, metadata: meta, tasks: existingTasks,
-        isVaultEncrypted, encryptionKey: null, isLoading: false,
+      const data = await loadVaultData(handle, userId);
+      finishVaultInit(handle, data, userId, {
         storageMode: wasLocalPlusR2 ? 'local+r2' : 'local',
         r2Mode: wasLocalPlusR2,
       });
-      scanFolderSizes(handle).then(noteSizes => set({ noteSizes })).catch(() => {});
-
-      if (!isVaultEncrypted) {
-        // Unencrypted vault — open notes normally
-        const lastId = localStorage.getItem(activeNoteKey(userId));
-        if (lastId && notes.find(n => n.id === lastId)) {
-          get().selectNote(lastId);
-        } else {
-          const first = notes.find(n => n.status === 'active');
-          if (first) get().selectNote(first.id);
-        }
-        buildFullTaskIndex(userId, notes, existingTasks, null)
-          .then(tasks => set({ tasks }))
-          .catch(() => {});
-      }
-      // If encrypted — wait for unlockVault() to be called
     } else {
       set({ isLoading: false });
     }
@@ -454,23 +543,8 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const handle = await openVault(userId);
     if (!handle) return;
     set({ isLoading: true });
-    const [rawFiles, meta, existingTasks, keyFile] = await Promise.all([
-      scanFolder(handle),
-      loadAllMetadata(userId),
-      loadAllTasks(userId),
-      readVaultFile(handle, VAULT_KEY_FILENAME),
-    ]);
-    const notes = mergeWithMeta(rawFiles, meta);
-    const isVaultEncrypted = keyFile !== null;
-    set({ vaultHandle: handle, notes, metadata: meta, tasks: existingTasks, activeNoteId: null, activeContent: '', isDirty: false, isLoading: false, isVaultEncrypted, encryptionKey: null });
-    scanFolderSizes(handle).then(noteSizes => set({ noteSizes })).catch(() => {});
-    if (!isVaultEncrypted) {
-      const first = notes.find(n => n.status === 'active');
-      if (first) get().selectNote(first.id);
-      buildFullTaskIndex(userId, notes, existingTasks, null)
-        .then(tasks => set({ tasks }))
-        .catch(() => {});
-    }
+    const data = await loadVaultData(handle, userId);
+    finishVaultInit(handle, data, userId);
   },
 
   openVaultFromHandle: async (userId, handle) => {
@@ -482,23 +556,8 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
     set({ isLoading: true });
     await saveVaultHandle(userId, handle);
-    const [rawFiles, meta, existingTasks, keyFile] = await Promise.all([
-      scanFolder(handle),
-      loadAllMetadata(userId),
-      loadAllTasks(userId),
-      readVaultFile(handle, VAULT_KEY_FILENAME),
-    ]);
-    const notes = mergeWithMeta(rawFiles, meta);
-    const isVaultEncrypted = keyFile !== null;
-    set({ vaultHandle: handle, notes, metadata: meta, tasks: existingTasks, activeNoteId: null, activeContent: '', isDirty: false, isLoading: false, isVaultEncrypted, encryptionKey: null });
-    scanFolderSizes(handle).then(noteSizes => set({ noteSizes })).catch(() => {});
-    if (!isVaultEncrypted) {
-      const first = notes.find(n => n.status === 'active');
-      if (first) get().selectNote(first.id);
-      buildFullTaskIndex(userId, notes, existingTasks, null)
-        .then(tasks => set({ tasks }))
-        .catch(() => {});
-    }
+    const data = await loadVaultData(handle, userId);
+    finishVaultInit(handle, data, userId);
   },
 
   openVaultFromProxy: async (userId, name, files) => {
@@ -772,13 +831,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     await saveAllTasks(userId, newTasks);
     set({ tasks: newTasks });
 
-    // Sync metadata + tasks to R2 (encrypted) if active
-    const { r2EncryptionKey: r2ek3 } = get();
-    if ((sm3 === 'r2' || sm3 === 'local+r2') && rt3 && r2ek3 && userId) {
-      enqueueEncryptedMetaAndTasks(userId, r2ek3, newMeta as Record<string, unknown>, newTasks as Record<string, unknown>)
-        .then(() => flushR2Queue(userId!, rt3))
-        .catch(() => {});
-    }
+    syncMetaAndTasksToR2();
 
     if (activeNoteId === id && userId) {
       localStorage.setItem(activeNoteKey(userId), resolvedNewName);
@@ -799,13 +852,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     await saveAllTasks(userId, newTasks);
     set({ tasks: newTasks });
 
-    // Sync metadata + tasks to R2 (encrypted) if active
-    const { r2EncryptionKey: r2ek6 } = get();
-    if ((sm6 === 'r2' || sm6 === 'local+r2') && rt6 && r2ek6) {
-      enqueueEncryptedMetaAndTasks(userId, r2ek6, newMeta as Record<string, unknown>, newTasks as Record<string, unknown>)
-        .then(() => flushR2Queue(userId!, rt6))
-        .catch(() => {});
-    }
+    syncMetaAndTasksToR2();
 
     if (get().activeNoteId === id) {
       const next = get().notes.find(n => n.status === 'active');
@@ -863,14 +910,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     await saveAllTasks(userId, newTasks);
     set({ tasks: newTasks });
 
-    // Sync tasks (and metadata) to R2 (encrypted) if active
-    const { r2EncryptionKey: r2ek4 } = get();
-    if ((sm4 === 'r2' || sm4 === 'local+r2') && rt4 && r2ek4 && userId) {
-      const metaAfter = get().metadata;
-      enqueueEncryptedMetaAndTasks(userId, r2ek4, metaAfter as Record<string, unknown>, newTasks as Record<string, unknown>)
-        .then(() => flushR2Queue(userId!, rt4))
-        .catch(() => {});
-    }
+    syncMetaAndTasksToR2();
 
     await get().refreshNotes();
     if (activeNoteId === id) {
@@ -886,12 +926,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const current = metadata[id]?.isFavorite ?? false;
     const newMeta = await updateNoteMeta(userId, id, { isFavorite: !current }, { ...metadata });
     set({ metadata: newMeta });
-    const { r2Token: rt, storageMode: sm, r2EncryptionKey: ek, tasks: curTasks } = get();
-    if ((sm === 'r2' || sm === 'local+r2') && rt && ek) {
-      enqueueEncryptedMetaAndTasks(userId, ek, newMeta as Record<string, unknown>, curTasks as Record<string, unknown>)
-        .then(() => flushR2Queue(userId, rt))
-        .catch(() => {});
-    }
+    syncMetaAndTasksToR2();
     await get().refreshNotes();
   },
 
@@ -901,12 +936,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const current = metadata[id]?.isPinned ?? false;
     const newMeta = await updateNoteMeta(userId, id, { isPinned: !current }, { ...metadata });
     set({ metadata: newMeta });
-    const { r2Token: rt, storageMode: sm, r2EncryptionKey: ek, tasks: curTasks } = get();
-    if ((sm === 'r2' || sm === 'local+r2') && rt && ek) {
-      enqueueEncryptedMetaAndTasks(userId, ek, newMeta as Record<string, unknown>, curTasks as Record<string, unknown>)
-        .then(() => flushR2Queue(userId, rt))
-        .catch(() => {});
-    }
+    syncMetaAndTasksToR2();
     await get().refreshNotes();
   },
 
@@ -922,12 +952,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const next = new Set(get().sessionUnlockedIds);
     next.delete(id);
     set({ sessionUnlockedIds: next });
-    const { r2Token: rt, storageMode: sm, r2EncryptionKey: ek, tasks: curTasks } = get();
-    if ((sm === 'r2' || sm === 'local+r2') && rt && ek) {
-      enqueueEncryptedMetaAndTasks(userId, ek, newMeta as Record<string, unknown>, curTasks as Record<string, unknown>)
-        .then(() => flushR2Queue(userId, rt))
-        .catch(() => {});
-    }
+    syncMetaAndTasksToR2();
     await get().refreshNotes();
   },
 
@@ -939,12 +964,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const next = new Set(get().sessionUnlockedIds);
     next.delete(id);
     set({ sessionUnlockedIds: next });
-    const { r2Token: rt, storageMode: sm, r2EncryptionKey: ek, tasks: curTasks } = get();
-    if ((sm === 'r2' || sm === 'local+r2') && rt && ek) {
-      enqueueEncryptedMetaAndTasks(userId, ek, newMeta as Record<string, unknown>, curTasks as Record<string, unknown>)
-        .then(() => flushR2Queue(userId, rt))
-        .catch(() => {});
-    }
+    syncMetaAndTasksToR2();
     await get().refreshNotes();
   },
 
@@ -965,12 +985,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     if (!userId) return;
     const newMeta = await updateNoteMeta(userId, id, { status }, { ...metadata });
     set({ metadata: newMeta });
-    const { r2Token: rt, storageMode: sm, r2EncryptionKey: ek, tasks: curTasks } = get();
-    if ((sm === 'r2' || sm === 'local+r2') && rt && ek) {
-      enqueueEncryptedMetaAndTasks(userId, ek, newMeta as Record<string, unknown>, curTasks as Record<string, unknown>)
-        .then(() => flushR2Queue(userId, rt))
-        .catch(() => {});
-    }
+    syncMetaAndTasksToR2();
     await get().refreshNotes();
   },
 
@@ -979,12 +994,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     if (!userId) return;
     const newMeta = await updateNoteMeta(userId, id, { tags }, { ...metadata });
     set({ metadata: newMeta });
-    const { r2Token: rt, storageMode: sm, r2EncryptionKey: ek, tasks: curTasks } = get();
-    if ((sm === 'r2' || sm === 'local+r2') && rt && ek) {
-      enqueueEncryptedMetaAndTasks(userId, ek, newMeta as Record<string, unknown>, curTasks as Record<string, unknown>)
-        .then(() => flushR2Queue(userId, rt))
-        .catch(() => {});
-    }
+    syncMetaAndTasksToR2();
     await get().refreshNotes();
   },
 
@@ -996,12 +1006,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       : { hasReminder: false, reminderTime: undefined, reminderStatus: undefined };
     const newMeta = await updateNoteMeta(userId, id, updates, { ...metadata });
     set({ metadata: newMeta });
-    const { r2Token: rt, storageMode: sm, r2EncryptionKey: ek, tasks: curTasks } = get();
-    if ((sm === 'r2' || sm === 'local+r2') && rt && ek) {
-      enqueueEncryptedMetaAndTasks(userId, ek, newMeta as Record<string, unknown>, curTasks as Record<string, unknown>)
-        .then(() => flushR2Queue(userId, rt))
-        .catch(() => {});
-    }
+    syncMetaAndTasksToR2();
     await get().refreshNotes();
   },
 
@@ -1010,12 +1015,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     if (!userId) return;
     const newMeta = await updateNoteMeta(userId, id, { reminderStatus: 'dismissed' }, { ...metadata });
     set({ metadata: newMeta });
-    const { r2Token: rt, storageMode: sm, r2EncryptionKey: ek, tasks: curTasks } = get();
-    if ((sm === 'r2' || sm === 'local+r2') && rt && ek) {
-      enqueueEncryptedMetaAndTasks(userId, ek, newMeta as Record<string, unknown>, curTasks as Record<string, unknown>)
-        .then(() => flushR2Queue(userId, rt))
-        .catch(() => {});
-    }
+    syncMetaAndTasksToR2();
     await get().refreshNotes();
   },
 
@@ -1024,12 +1024,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     if (!userId) return;
     const newMeta = await updateNoteMeta(userId, id, { reminderStatus: 'fired' }, { ...metadata });
     set({ metadata: newMeta });
-    const { r2Token: rt, storageMode: sm, r2EncryptionKey: ek, tasks: curTasks } = get();
-    if ((sm === 'r2' || sm === 'local+r2') && rt && ek) {
-      enqueueEncryptedMetaAndTasks(userId, ek, newMeta as Record<string, unknown>, curTasks as Record<string, unknown>)
-        .then(() => flushR2Queue(userId, rt))
-        .catch(() => {});
-    }
+    syncMetaAndTasksToR2();
     await get().refreshNotes();
   },
 
@@ -1115,13 +1110,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const newTasks = { ...tasks, [taskId]: updated };
     await saveAllTasks(userId, newTasks);
     set({ tasks: newTasks });
-    // Sync tasks (and metadata) to R2 (encrypted) if active
-    const { r2EncryptionKey: r2ek5, metadata: meta5 } = get();
-    if ((sm5 === 'r2' || sm5 === 'local+r2') && rt5 && r2ek5) {
-      enqueueEncryptedMetaAndTasks(userId, r2ek5, meta5 as Record<string, unknown>, newTasks as Record<string, unknown>)
-        .then(() => flushR2Queue(userId!, rt5))
-        .catch(() => {});
-    }
+    syncMetaAndTasksToR2();
   },
 
   createTaskNote: async (text = 'New task') => {
@@ -1674,13 +1663,13 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   toggleTheme: () => {
     const newTheme = get().theme === 'light' ? 'dark' : 'light';
-    localStorage.setItem('ballpoint-theme', newTheme);
+    try { localStorage.setItem('ballpoint-theme', newTheme); } catch { /* private browsing */ }
     applyTheme(newTheme, get().accentColor);
     set({ theme: newTheme });
   },
 
   setAccentColor: (color) => {
-    localStorage.setItem('ballpoint-accent', color);
+    try { localStorage.setItem('ballpoint-accent', color); } catch { /* private browsing */ }
     applyTheme(get().theme, color);
     set({ accentColor: color });
   },
