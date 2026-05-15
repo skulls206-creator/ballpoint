@@ -197,6 +197,9 @@ interface NotesState {
   syncNoteTasks: (noteId: string, noteTitle: string, content: string) => Promise<void>;
   toggleTask: (taskId: string) => Promise<void>;
   setTaskDueDate: (taskId: string, dueDate: string | null) => Promise<void>;
+  setTaskPriority: (taskId: string, priority: 'urgent' | 'high' | 'medium' | 'low') => Promise<void>;
+  setTaskDescription: (taskId: string, description: string) => Promise<void>;
+  setTaskSubtasks: (taskId: string, subtasks: Array<{id: string, text: string, completed: boolean}>) => Promise<void>;
   createTaskNote: (text?: string) => Promise<void>;
 
   // Sync (Lighthouse cloud backup)
@@ -1115,12 +1118,48 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   createTaskNote: async (text = 'New task') => {
     const { vaultHandle, proxyVault, userId } = get();
-    if ((!vaultHandle && proxyVault === null) || !userId) return;
+    if ((!vaultHandle && proxyVault === null) || userId === null) return;
     await get().createNewNote(text);
     // Pre-populate with a task line
     const initialContent = `- [ ] ${text}\n`;
     get().updateContent(initialContent);
     await get().saveActiveNote();
+  },
+
+  setTaskPriority: async (taskId, priority) => {
+    const { tasks } = get();
+    if (userId === null) return;
+    const task = tasks[taskId];
+    if (!task) return;
+    const updated: Task = { ...task, priority, updatedAt: Date.now() };
+    const newTasks: TaskMap = { ...tasks, [taskId]: updated };
+    await saveAllTasks(userId, newTasks);
+    set({ tasks: newTasks });
+    syncMetaAndTasksToR2();
+  },
+
+  setTaskDescription: async (taskId, description) => {
+    const { tasks } = get();
+    if (userId === null) return;
+    const task = tasks[taskId];
+    if (!task) return;
+    const updated: Task = { ...task, description, updatedAt: Date.now() };
+    const newTasks: TaskMap = { ...tasks, [taskId]: updated };
+    await saveAllTasks(userId, newTasks);
+    set({ tasks: newTasks });
+    syncMetaAndTasksToR2();
+  },
+
+  setTaskSubtasks: async (taskId, subtasks) => {
+    const { tasks } = get();
+    if (userId === null) return;
+    const task = tasks[taskId];
+    if (!task) return;
+    const updated: Task = { ...task, subtasks, updatedAt: Date.now() };
+    const newTasks: TaskMap = { ...tasks, [taskId]: updated };
+    await saveAllTasks(userId, newTasks);
+    set({ tasks: newTasks });
+    syncMetaAndTasksToR2();
   },
 
   // ── Encryption ────────────────────────────────────────────────────────────

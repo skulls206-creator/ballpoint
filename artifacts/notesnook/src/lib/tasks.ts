@@ -8,6 +8,9 @@ export interface Task {
   noteTitle: string;   // cached display name
   text: string;        // task text from Markdown
   completed: boolean;  // from [ ] or [x]
+  priority?: 'urgent' | 'high' | 'medium' | 'low'; // task priority
+  description?: string; // detailed task description/notes
+  subtasks?: Array<{id: string, text: string, completed: boolean}>; // checklist subtasks
   dueDate?: string;    // ISO date string, stored in IDB only
   lineIndex: number;   // which line in the note file
   createdAt: number;
@@ -69,8 +72,11 @@ export function mergeTasks(parsed: Task[], existing: TaskMap): TaskMap {
     const prev = existing[t.id];
     result[t.id] = {
       ...t,
-      dueDate:   prev?.dueDate,
-      createdAt: prev?.createdAt ?? t.createdAt,
+      priority:    prev?.priority,
+      description: prev?.description,
+      subtasks:    prev?.subtasks,
+      dueDate:     prev?.dueDate,
+      createdAt:   prev?.createdAt ?? t.createdAt,
       // keep updatedAt fresh only if text or completion changed
       updatedAt: (prev && prev.text === t.text && prev.completed === t.completed)
         ? (prev.updatedAt ?? t.updatedAt)
@@ -163,9 +169,67 @@ export function selectTaskCounts(tasks: TaskMap) {
   const upcoming = all.filter(t => !t.completed && !!t.dueDate && new Date(t.dueDate).getTime() >= tmrw).length;
   const noDate   = all.filter(t => !t.completed && !t.dueDate).length;
   return {
-    inbox:    today + upcoming + noDate, // all active tasks — matches unified inbox panel
+    inbox:    today + upcoming + noDate, // all active tasks - matches unified inbox panel
     today,
     upcoming,
     done:     all.filter(t => t.completed).length,
   };
+}
+
+// ─── Filtering and Sorting ────────────────────────────────────────────────
+
+export type TaskPriorityFilter = 'all' | 'urgent' | 'high' | 'medium' | 'low' | 'none';
+export type TaskSortBy = 'dueDate' | 'priority' | 'createdAt';
+
+export function selectTasksFiltered(
+  tasks: TaskMap,
+  view: TaskView,
+  priorityFilter: TaskPriorityFilter = 'all',
+  sortBy: TaskSortBy = 'dueDate'
+): Task[] {
+  let filtered = selectTasksByView(tasks, view);
+
+  // Apply priority filter
+  if (priorityFilter !== 'all') {
+    if (priorityFilter === 'none') {
+      filtered = filtered.filter(t => !t.priority);
+    } else {
+      filtered = filtered.filter(t => t.priority === priorityFilter);
+    }
+  }
+
+  // Apply sorting
+  return [...filtered].sort((a, b) => {
+    let comparison = 0;
+    
+    switch (sortBy) {
+      case 'dueDate':
+        const dateA = a.dueDate ? new Date(a.dueDate).getTime() : 0;
+        const dateB = b.dueDate ? new Date(b.dueDate).getTime() : 0;
+        comparison = dateA - dateB;
+        break;
+        
+      case 'priority':
+        const priorityOrder: Record<Task['priority'], number> = {
+          urgent: 4,
+          high: 3,
+          medium: 2,
+          low: 1,
+          undefined: 0
+        };
+        comparison = (priorityOrder[a.priority ?? undefined] || 0) - (priorityOrder[b.priority ?? undefined] || 0);
+        break;
+        
+      case 'createdAt':
+        comparison = (a.createdAt ?? 0) - (b.createdAt ?? 0);
+        break;
+    }
+    
+    // Secondary sort by updatedAt for stability
+    if (comparison === 0) {
+      return (b.updatedAt ?? 0) - (a.updatedAt ?? 0);
+    }
+    
+    return comparison;
+  });
 }
