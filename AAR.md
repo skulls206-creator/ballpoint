@@ -4,6 +4,17 @@
 
 ---
 
+## 2026-05-14 — CI/CD workflow + GH Pages deployment live
+**Author:** opencode
+**Commits:** `c2d75d0`, `eda7f70`, `b9f1a72`, `ef46b79`, `ec6ce17`, `517ee2a`
+**Scope:** `.github/workflows/deploy-gh-pages.yml`, `pnpm-workspace.yaml`, `package.json`, `pnpm-lock.yaml`, `.npmrc`
+**Changes:**
+- **Added `deploy-gh-pages.yml` workflow:** Auto-builds and deploys to GH Pages on every push to `main`. Uses `pnpm install --ignore-scripts` + `pnpm rebuild esbuild` to work around pnpm 11's `onlyBuiltDependencies` strict enforcement.
+- **Fixed preinstall script:** Was `sh -c ...` (Linux-only), now uses cross-platform `node -e` so Windows builds don't fail.
+- **Restored `onlyBuiltDependencies`** in `pnpm-workspace.yaml` after CI compatibility fixes.
+- **Added SPA routing support:** Build script now auto-copies `index.html` → `404.html` for GH Pages SPA fallback.
+**State after:** Live at https://skulls206-creator.github.io/ballpoint/. Any future push to `main` auto-rebuilds and deploys.
+
 ## 2026-05-14 — Auth removed for GitHub Pages static deployment
 **Author:** opencode
 **Commits:** `09167a7`
