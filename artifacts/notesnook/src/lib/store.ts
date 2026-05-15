@@ -1172,7 +1172,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   enableEncryption: async (password) => {
     const { vaultHandle, userId, notes, encryptionKey } = get();
-    if (!vaultHandle || !userId || encryptionKey) return; // already encrypted
+    if (!vaultHandle || userId === null || encryptionKey) return; // already encrypted
 
     const { key, content: keyContent } = await createKeyFileContent(password);
     await writeVaultFile(vaultHandle, VAULT_KEY_FILENAME, keyContent);
@@ -1201,7 +1201,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   disableEncryption: async () => {
     const { vaultHandle, userId, notes, encryptionKey } = get();
-    if (!vaultHandle || !userId || !encryptionKey) return;
+    if (!vaultHandle || userId === null || !encryptionKey) return;
 
     // Decrypt and rewrite every note file AND their version snapshots
     for (const note of notes) {
