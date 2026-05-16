@@ -448,7 +448,7 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
             )}
 
             {/* PIN quick unlock */}
-            {vaultHandle && isVaultEncrypted && encryptionKey && (
+            {vaultHandle && (
               <div>
                 <p className="text-[9px] uppercase tracking-widest text-sidebar-foreground/35 mb-1.5 font-semibold">PIN Unlock</p>
                 <div className="rounded-lg border border-sidebar-border/60 overflow-hidden">
