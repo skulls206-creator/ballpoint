@@ -52,13 +52,6 @@ function VaultLockScreen({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
     setPin('');
   };
 
-  // Re-evaluate on rerender in case of localStorage change
-  useEffect(() => {
-    if (userId !== null) {
-      setUsePinMode(hasPin());
-    }
-  }, [userId, hasPin]);
-
   return (
     <div className="flex-1 flex flex-col bg-background">
       {/* Mobile top bar */}
