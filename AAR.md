@@ -3,6 +3,36 @@
 > Shared change log so any AI builder (Replit Agent, Claude, Cursor, etc.) or human can pick up where the last one left off. **Newest entry on top.** One entry per meaningful edit, build, or deploy. Include commit SHA(s) so the next reader can `git show <sha>` for exact diffs.
 
 ---
+## 2026-05-16 — GH Pages login working + Cloud Vault sidebar parity (iOS PIN fix)
+**Author:** Replit Agent
+**Commits:** `0de0043` (apiUrl auto-detect), `31026cb` (Sidebar cloud-vault gates)
+**Scope:** `artifacts/notesnook/src/lib/apiUrl.ts`, `artifacts/notesnook/src/components/Sidebar.tsx`, `.github/workflows/deploy-gh-pages.yml` (attempted, reverted), `replit.md` (Git Sync Rules expanded)
+
+**Problem 1 — GH Pages login returned 405**
+GH Actions repo variable `VITE_API_URL=https://ballpointone.replit.app` was set by the user, but `deploy-gh-pages.yml` never forwarded it into the build `env:` block, so the bundle had no API URL baked in and POSTed to `ballpoint.khurk.xyz/api/auth/register` (a static host → 405).
+
+**Why I didn't just patch the workflow file:**
+PUT to `.github/workflows/*` via the Replit GitHub OAuth integration returns `403 refusing to allow an OAuth App to create or update workflow ... without 'workflow' scope`. The Replit-issued token doesn't have the `workflow` scope. Documented this in `replit.md` → Git Sync Rules → "Pattern A has ONE blind spot: `.github/workflows/*`".
+
+**Fix:** Made `apiUrl.ts` self-resolve — if `VITE_API_URL` env is empty AND `window.location.hostname` is `*.github.io` or `ballpoint.khurk.xyz`, fall back to `https://ballpointone.replit.app/api`. `VITE_API_URL` still works as an override for future redeploys. No workflow change needed. Verified end-to-end: `POST /api/auth/register` from `Origin: https://skulls206-creator.github.io` returns 400 with real server error message + correct `Access-Control-Allow-Origin` header. CORS already allowed any HTTPS origin (app.ts), no server change required.
+
+**Problem 2 — PIN UNLOCK and ENCRYPTION sections invisible to iOS Cloud Vault users**
+User had 6 notes loaded on the Cloud Vault but the sidebar settings showed only "Open vault" — no Encryption, no PIN UNLOCK. Root cause: both sections were gated on `{vaultHandle && (...)}`. On iOS, `showDirectoryPicker` doesn't exist so `vaultHandle` is permanently null; Cloud Vault mode instead sets `proxyVault: '__r2_cloud__'` (see `store.ts:1549,1591`). Other sidebar pieces already used the combined `(vaultHandle || proxyVault !== null)` gate (lines 293, 548) but the Vault/Encryption/PIN blocks didn't.
+
+**Fix (Sidebar.tsx):**
+- PIN UNLOCK gate broadened to `(vaultHandle || proxyVault !== null)` — now shows for cloud vaults too.
+- Vault section now has THREE branches: local handle (Change folder/Disconnect), cloud (Cloud vault connected/Disconnect), or none (Open vault).
+- Encryption section deliberately LEFT gated on `vaultHandle` only — in-app AES-256-GCM is a local-folder-only feature; cloud vaults already get R2/Kavach encryption automatically, so exposing "Enable encryption" there would be misleading and break (`enableEncryption` requires `vaultHandle`).
+
+**State after:** GH Pages deploy `31026cb` is live and verified. iOS users hitting `ballpoint.khurk.xyz` (or `skulls206-creator.github.io/ballpoint/`) can register/login → open cloud vault → see PIN UNLOCK in sidebar → set/change/remove PIN. All three Replit workflows still green.
+
+**Notes for next AI:**
+- **`.github/workflows/*` is unreachable from Replit's Contents-API token.** If a workflow file truly needs changing, either (a) refactor the app so the workflow doesn't need to change (preferred — what I did here), (b) ask user to edit it in GitHub web UI, or (c) re-authorize the Replit GitHub integration with `workflow` scope. See `replit.md` → Git Sync Rules.
+- **iOS Cloud Vault state model:** `vaultHandle === null && proxyVault === '__r2_cloud__'` means "cloud vault is open." Never gate UI on `vaultHandle` alone if it should also work for cloud users — use `(vaultHandle || proxyVault !== null)`.
+- PIN feature works for both local and cloud vaults because PIN encrypts the vault password, which exists in both modes.
+- Replit local `master` is currently at `dec1897` (post Task #10 reset + my Contents-API pushes layered on as Replit checkpoints). Remote `main` tip is `31026cb`. File contents are in sync; only the Replit checkpoint chain differs from remote history.
+
+---
 ## 2026-05-16 — Pulled remote into Replit via GitHub API (git ops blocked)
 **Author:** Replit Agent (Task #9)
 **Commits pulled in:** `7c33953`, `884c357`, `92533e4`, `79650ae`
