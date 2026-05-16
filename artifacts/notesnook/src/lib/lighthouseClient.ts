@@ -20,8 +20,9 @@
 
 import lighthouse from "@lighthouse-web3/sdk";
 
-const BASE = import.meta.env.BASE_URL.replace(/\/$/, "");
-const API = `${BASE}/api`;
+import { getApiUrl } from './apiUrl';
+
+const API = getApiUrl();
 
 function authHeaders(token: string): HeadersInit {
   return { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };

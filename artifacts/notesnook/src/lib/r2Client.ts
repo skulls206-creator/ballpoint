@@ -3,8 +3,9 @@
  * Notes are AES-256-GCM encrypted client-side before upload; the server only sees ciphertext.
  */
 
-const BASE = (import.meta.env.BASE_URL as string).replace(/\/$/, "");
-const API = `${BASE}/api`;
+import { getApiUrl } from './apiUrl';
+
+const API = getApiUrl();
 
 function authHeaders(token: string): Record<string, string> {
   return { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
