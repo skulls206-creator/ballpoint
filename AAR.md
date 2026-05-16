@@ -3,6 +3,26 @@
 > Shared change log so any AI builder (Replit Agent, Claude, Cursor, etc.) or human can pick up where the last one left off. **Newest entry on top.** One entry per meaningful edit, build, or deploy. Include commit SHA(s) so the next reader can `git show <sha>` for exact diffs.
 
 ---
+## 2026-05-16 — Cloud vault auth flow + iOS fallback + TS type fixes
+**Author:** Satoshi (OpenClaw)
+**Commits:** `5064388`, `299ed20`, `43f196b`, `4641e7e`, `7c33953`, `884c357`, `92533e4`
+**Scope:** WelcomeScreen.tsx, apiUrl.ts (new), r2Client.ts, lighthouseClient.ts, .env.example, store.ts, Editor.tsx, SettingsPanel.tsx, TaskCard.tsx, TaskDetailPanel.tsx, crypto.ts, fileSystem.ts, tasks.ts, main.tsx
+**Changes:**
+- **WelcomeScreen redesign:** Added Cloud Vault tab with two-step flow: Log In / Register (email + password) then vault password + Connect/Create. Removed confusing "R2 API Token" field.
+- **iOS fallback:** On browsers without `showDirectoryPicker` (iOS Safari), WelcomeScreen defaults to Cloud Vault with explanation instead of dead-end error.
+- **VITE_API_URL support:** New `lib/apiUrl.ts` reads `VITE_API_URL` env var so GH Pages frontend can call the Replit-hosted API server. Falls back to same-origin `/api` for full-stack deployments.
+- **Fixed apiUrl bug:** Was dropping `/api` path when `VITE_API_URL` was set. Now always appends `/api` to the URL.
+- **TS 5.9 fixes across 10 files:** userId scope bugs in 3 store functions (silent no-op). Uint8Array type issues. Record key constraints. File System API type queries. Lighthouse nullable returns. Notification `actions` type. All resolve with `tsc --noEmit` passing clean.
+
+**State after:** iOS users can register/login on the WelcomeScreen, create/connect an R2 cloud vault, and use Ballpoint fully on mobile. GH Pages frontend talks to Replit API server via VITE_API_URL.
+
+**Notes for next AI:**
+- VITE_API_URL must be the root URL (e.g. `https://ballpointone.replit.app`), not including `/api`. The code appends it.
+- authContext.tsx is still a stub — WelcomeScreen does direct fetch() to the API auth endpoints.
+- Pull latest on Replit and rebuild GH Pages with VITE_API_URL to make the full flow work.
+- All userId checks must use `userId === null`, not `!userId` (LOCAL_USER_ID = 0).
+
+---
 
 ## 2026-05-14 — CI/CD workflow + GH Pages deployment live
 **Author:** opencode
