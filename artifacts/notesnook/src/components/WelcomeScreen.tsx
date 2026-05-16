@@ -96,8 +96,13 @@ export function WelcomeScreen({ onOpenSidebar }: { onOpenSidebar?: () => void })
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: authEmail.trim(), password: authPwd }),
       });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? 'Authentication failed');
+      const text = await res.text();
+      let data: any;
+      try { data = JSON.parse(text); } catch { data = { error: text }; }
+      if (!res.ok) {
+        const msg = data?.error ?? data?.message ?? text ?? `HTTP ${res.status}`;
+        throw new Error(msg);
+      }
       setJwtToken(data.token);
       setAuthDone(true);
     } catch (e: any) {
