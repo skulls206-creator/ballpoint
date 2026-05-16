@@ -364,21 +364,19 @@ export function WelcomeScreen({ onOpenSidebar }: { onOpenSidebar?: () => void })
                   }
                 </button>
 
-                {isFileSystemSupported && (
-                  <button
-                    onClick={() => { setVaultCreate(c => !c); setError(null); }}
-                    className="px-3 py-2 rounded-lg border border-border text-[10px] text-muted-foreground hover:bg-muted transition-colors"
-                  >
-                    {vaultCreate ? 'Existing' : 'New'}
-                  </button>
-                )}
+                <button
+                  onClick={() => { setVaultCreate(c => !c); setError(null); }}
+                  className="px-3 py-2 rounded-lg border border-border text-[10px] text-muted-foreground hover:bg-muted transition-colors"
+                >
+                  {vaultCreate ? 'Existing' : 'New'}
+                </button>
               </div>
 
-              {!isFileSystemSupported && vaultCreate === false && (
-                <p className="text-[10px] text-muted-foreground/60 text-center">
-                  First time? Create a vault from a desktop browser, then connect here.
-                </p>
-              )}
+              <p className="text-[10px] text-muted-foreground/60 text-center">
+                {vaultCreate
+                  ? 'Create a new encrypted vault for this account.'
+                  : 'Connect to an existing vault for this account.'}
+              </p>
 
               {error && (
                 <div className="flex items-start gap-2 bg-destructive/10 text-destructive p-3 rounded-lg border border-destructive/20 text-left">
