@@ -237,7 +237,7 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
 
   return (
     <>
-    <aside className="w-72 md:w-[200px] shrink-0 flex flex-col h-full bg-sidebar border-r border-sidebar-border select-none overflow-hidden">
+    <aside className="w-72 md:w-[200px] shrink-0 flex flex-col h-full bg-sidebar border-r border-sidebar-border select-none">
       {/* Branding */}
       <div className="flex items-center gap-1.5 px-3 py-2.5 border-b border-sidebar-border">
         <div className="w-5 h-5 rounded-md overflow-hidden shrink-0">
@@ -266,7 +266,7 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
 
       {/* Settings Panel */}
       {settingsOpen && (
-        <div className="border-b border-sidebar-border bg-sidebar overflow-y-auto max-h-[60vh]">
+        <div className="border-b border-sidebar-border bg-sidebar overflow-y-auto max-h-[60vh] overscroll-contain">
 
           <div className="px-3 pb-3 space-y-3">
 
@@ -559,7 +559,7 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
       )}
 
       {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto py-1 px-1.5 space-y-px">
+      <nav className="flex-1 overflow-y-auto py-1 px-1.5 space-y-px min-h-0">
         {/* Notes section */}
         <p className="px-1.5 pt-1 pb-0.5 text-[9px] font-semibold uppercase tracking-widest text-sidebar-foreground/30">Notes</p>
         {noteItems.map(item => {
