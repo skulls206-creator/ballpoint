@@ -336,6 +336,17 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
                       <FolderX size={11} /> Disconnect
                     </button>
                   </>
+                ) : proxyVault !== null ? (
+                  <>
+                    <div className="w-full flex items-center gap-2 px-2.5 py-2 text-[11px] text-sidebar-foreground/70">
+                      <FolderOpen size={11} className="text-primary/60" /> Cloud vault connected
+                    </div>
+                    <div className="h-px bg-sidebar-border/40 mx-2" />
+                    <button onClick={() => (userId !== null) && disconnectVault(userId)}
+                      className="w-full flex items-center gap-2 px-2.5 py-2 text-[11px] text-destructive/70 hover:bg-destructive/8 transition-colors">
+                      <FolderX size={11} /> Disconnect
+                    </button>
+                  </>
                 ) : (
                   <button onClick={() => (userId !== null) && openNewVault(userId)}
                     className="w-full flex items-center gap-2 px-2.5 py-2 text-[11px] text-sidebar-foreground/70 hover:bg-sidebar-accent transition-colors">
@@ -448,7 +459,7 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
             )}
 
             {/* PIN quick unlock */}
-            {vaultHandle && (
+            {(vaultHandle || proxyVault !== null) && (
               <div>
                 <p className="text-[9px] uppercase tracking-widest text-sidebar-foreground/35 mb-1.5 font-semibold">PIN Unlock</p>
                 <div className="rounded-lg border border-sidebar-border/60 overflow-hidden">
