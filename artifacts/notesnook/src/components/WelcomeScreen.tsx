@@ -2,9 +2,13 @@ import { useState } from 'react';
 import {
   FolderOpen, HardDrive, Lock, Menu, AlertCircle, Loader2,
   ExternalLink, Cloud, KeyRound, Eye, EyeOff, ChevronLeft,
+  User, Mail, LogIn, UserPlus,
 } from 'lucide-react';
 import { useNotesStore } from '../lib/store';
 import { isFileSystemSupported } from '../lib/fileSystem';
+import { getApiUrl } from '../lib/apiUrl';
+
+const API = getApiUrl();
 
 function isInIframe(): boolean {
   try { return window.self !== window.top; } catch { return true; }
@@ -28,12 +32,12 @@ function MobileTopBar({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
 }
 
 type VaultMode = 'local' | 'cloud' | null;
+type AuthMode = 'login' | 'register';
 
 export function WelcomeScreen({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
   const openNewVault   = useNotesStore(s => s.openNewVault);
   const openR2Vault    = useNotesStore(s => s.openR2Vault);
   const createR2Vault  = useNotesStore(s => s.createR2Vault);
-  const checkR2Status  = useNotesStore(s => s.checkR2Status);
 
   const [loading, setLoading]       = useState(false);
   const [error, setError]           = useState<string | null>(null);
@@ -41,13 +45,22 @@ export function WelcomeScreen({ onOpenSidebar }: { onOpenSidebar?: () => void })
 
   // Cloud vault form state
   const [mode, setMode]             = useState<VaultMode>(isFileSystemSupported ? null : 'cloud');
-  const [r2Token, setR2Token]       = useState('');
-  const [r2Pwd, setR2Pwd]           = useState('');
-  const [r2ShowPwd, setR2ShowPwd]   = useState(false);
-  const [r2Create, setR2Create]     = useState(false);
-  const [r2Checking, setR2Checking] = useState(false);
+
+  // Auth state
+  const [authMode, setAuthMode]     = useState<AuthMode>('login');
+  const [authEmail, setAuthEmail]   = useState('');
+  const [authPwd, setAuthPwd]       = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [jwtToken, setJwtToken]     = useState('');
+  const [authDone, setAuthDone]     = useState(false);
+
+  // Vault connect state
+  const [vaultPwd, setVaultPwd]     = useState('');
+  const [vaultShowPwd, setVaultShowPwd] = useState(false);
+  const [vaultCreate, setVaultCreate] = useState(false);
 
   const inIframe = isInIframe();
+  const showCloudForm = mode === 'cloud';
 
   // ── Local folder picker ────────────────────────────────────────────────────
 
@@ -69,18 +82,43 @@ export function WelcomeScreen({ onOpenSidebar }: { onOpenSidebar?: () => void })
     }
   };
 
-  // ── Cloud vault ────────────────────────────────────────────────────────────
+  // ── Auth (login / register) ────────────────────────────────────────────────
+
+  const handleAuth = async () => {
+    setError(null);
+    if (!authEmail.trim()) { setError('Enter your email.'); return; }
+    if (!authPwd || authPwd.length < 6) { setError('Password must be at least 6 characters.'); return; }
+    setAuthLoading(true);
+    try {
+      const endpoint = authMode === 'login' ? '/auth/login' : '/auth/register';
+      const res = await fetch(`${API}${endpoint}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: authEmail.trim(), password: authPwd }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? 'Authentication failed');
+      setJwtToken(data.token);
+      setAuthDone(true);
+    } catch (e: any) {
+      setError(e.message ?? 'Authentication failed.');
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  // ── Cloud vault connect ────────────────────────────────────────────────────
 
   const handleConnectCloud = async () => {
     setError(null);
-    if (!r2Token.trim()) { setError('Enter your R2 API token.'); return; }
-    if (!r2Pwd) { setError('Enter a vault password.'); return; }
+    if (!jwtToken) { setError('Log in or register first.'); return; }
+    if (!vaultPwd) { setError('Enter a vault password.'); return; }
     setLoading(true);
     try {
-      if (r2Create) {
-        await createR2Vault(0, r2Token.trim(), r2Pwd);
+      if (vaultCreate) {
+        await createR2Vault(0, jwtToken, vaultPwd);
       } else {
-        await openR2Vault(0, r2Token.trim(), r2Pwd);
+        await openR2Vault(0, jwtToken, vaultPwd);
       }
     } catch (e: any) {
       setError(e?.message ?? 'Failed to connect to cloud vault.');
@@ -89,13 +127,12 @@ export function WelcomeScreen({ onOpenSidebar }: { onOpenSidebar?: () => void })
     }
   };
 
-  const checkToken = async () => {
-    if (!r2Token.trim()) return;
-    setR2Checking(true);
-    try {
-      await checkR2Status();
-    } catch { /* ignore — will show generic UI */ }
-    setR2Checking(false);
+  const resetAuth = () => {
+    setJwtToken('');
+    setAuthDone(false);
+    setAuthEmail('');
+    setAuthPwd('');
+    setError(null);
   };
 
   // ── In iframe: KHURK proxy mode ────────────────────────────────────────────
@@ -155,15 +192,13 @@ export function WelcomeScreen({ onOpenSidebar }: { onOpenSidebar?: () => void })
     );
   }
 
-  // ── Unsupported browser → cloud vault as primary option ────────────────────
+  // ── Unsupported browser → default to cloud ─────────────────────────────────
 
   if (!isFileSystemSupported && mode === null) {
     setMode('cloud');
   }
 
-  const showCloudForm = mode === 'cloud';
-
-  // ── Mode selector tabs (only when showDirectoryPicker is available) ─────────
+  // ── Mode selector tabs ─────────────────────────────────────────────────────
 
   const ModeSelector = () => (
     <div className="flex gap-2 mb-4">
@@ -178,7 +213,7 @@ export function WelcomeScreen({ onOpenSidebar }: { onOpenSidebar?: () => void })
         <FolderOpen size={13} /> Local Folder
       </button>
       <button
-        onClick={() => { setMode('cloud'); setError(null); }}
+        onClick={() => { setMode('cloud'); setError(null); resetAuth(); }}
         className={`flex-1 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-all ${
           mode === 'cloud'
             ? 'bg-primary text-primary-foreground shadow-sm'
@@ -207,15 +242,15 @@ export function WelcomeScreen({ onOpenSidebar }: { onOpenSidebar?: () => void })
             </h1>
             <p className="text-sm text-muted-foreground leading-relaxed">
               {showCloudForm
-                ? 'Store your notes encrypted in a Cloudflare R2 bucket — accessible from any device.'
+                ? 'Store your notes encrypted in a cloud bucket — accessible from any device.'
                 : 'Select a folder on your computer to store your notes as plain Markdown files.'}
             </p>
           </div>
 
-          {/* Mode tabs — only show when FSA is available */}
+          {/* Mode tabs */}
           {isFileSystemSupported && <ModeSelector />}
 
-          {/* ── Cloud Vault Form ─────────────────────────────────────────────── */}
+          {/* ── Cloud Vault ──────────────────────────────────────────────────── */}
           {showCloudForm && (
             <div className="space-y-3 text-left">
               {!isFileSystemSupported && (
@@ -226,38 +261,93 @@ export function WelcomeScreen({ onOpenSidebar }: { onOpenSidebar?: () => void })
                 </div>
               )}
 
-              <div>
-                <label className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-1 block">
-                  R2 API Token
-                </label>
-                <input
-                  type="text"
-                  value={r2Token}
-                  onChange={e => setR2Token(e.target.value)}
-                  onBlur={checkToken}
-                  placeholder="cf-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
-                  className="w-full px-3 py-2 rounded-md border border-border bg-background text-[12px] outline-none focus:ring-1 focus:ring-ring font-mono placeholder:text-muted-foreground/30"
-                />
-              </div>
+              {/* Step 1: Auth — login or register */}
+              {!authDone && (
+                <div className="space-y-3 border border-border/60 rounded-lg p-4 bg-muted/20">
+                  <div className="flex items-center gap-2">
+                    <User size={13} className="text-primary" />
+                    <span className="text-[11px] font-semibold text-foreground uppercase tracking-wide">
+                      {authMode === 'login' ? 'Log In' : 'Create Account'}
+                    </span>
+                  </div>
 
-              <div>
+                  <div className="space-y-2">
+                    <input
+                      type="email"
+                      value={authEmail}
+                      onChange={e => setAuthEmail(e.target.value)}
+                      placeholder="Email"
+                      autoComplete="email"
+                      className="w-full px-3 py-2 rounded-md border border-border bg-background text-[13px] outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40"
+                    />
+                    <input
+                      type="password"
+                      value={authPwd}
+                      onChange={e => setAuthPwd(e.target.value)}
+                      placeholder="Password (min 6 chars)"
+                      autoComplete={authMode === 'login' ? 'current-password' : 'new-password'}
+                      className="w-full px-3 py-2 rounded-md border border-border bg-background text-[13px] outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40"
+                    />
+                  </div>
+
+                  <button
+                    onClick={handleAuth}
+                    disabled={authLoading || !authEmail.trim() || authPwd.length < 6}
+                    className="w-full py-2 rounded-lg bg-primary text-primary-foreground text-xs font-semibold flex items-center justify-center gap-1.5 hover:opacity-90 transition-opacity disabled:opacity-50"
+                  >
+                    {authLoading
+                      ? <><Loader2 size={12} className="animate-spin" /> Signing in…</>
+                      : <>{authMode === 'login' ? <LogIn size={13} /> : <UserPlus size={13} />}
+                         {authMode === 'login' ? 'Log In' : 'Register'}
+                        </>
+                    }
+                  </button>
+
+                  <button
+                    onClick={() => { setAuthMode(m => m === 'login' ? 'register' : 'login'); setError(null); }}
+                    className="w-full text-[10px] text-muted-foreground hover:text-foreground transition-colors underline-offset-2 hover:underline"
+                  >
+                    {authMode === 'login' ? "Don't have an account? Register" : 'Already have an account? Log in'}
+                  </button>
+                </div>
+              )}
+
+              {/* Step 2: Connected — show token status */}
+              {authDone && (
+                <div className="flex items-center gap-2 bg-green-500/10 border border-green-500/20 rounded-lg px-3 py-2.5">
+                  <div className="w-2 h-2 rounded-full bg-green-500 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-medium text-foreground">Authenticated</p>
+                    <p className="text-[9px] text-muted-foreground truncate font-mono">{authEmail}</p>
+                  </div>
+                  <button
+                    onClick={resetAuth}
+                    className="text-[10px] text-muted-foreground hover:text-foreground px-2 py-1 rounded hover:bg-muted transition-colors"
+                  >
+                    Switch
+                  </button>
+                </div>
+              )}
+
+              {/* Step 3: Vault password + connect */}
+              <div className="space-y-2">
                 <label className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground/60 mb-1 block">
                   Vault Password
                 </label>
                 <div className="relative">
                   <input
-                    type={r2ShowPwd ? 'text' : 'password'}
-                    value={r2Pwd}
-                    onChange={e => setR2Pwd(e.target.value)}
-                    placeholder="Enter vault password"
+                    type={vaultShowPwd ? 'text' : 'password'}
+                    value={vaultPwd}
+                    onChange={e => setVaultPwd(e.target.value)}
+                    placeholder="Enter vault encryption password"
                     className="w-full px-3 py-2 rounded-md border border-border bg-background text-[13px] outline-none focus:ring-1 focus:ring-ring pr-9 placeholder:text-muted-foreground/40"
                   />
                   <button
                     type="button"
-                    onClick={() => setR2ShowPwd(p => !p)}
+                    onClick={() => setVaultShowPwd(p => !p)}
                     className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground/50 hover:text-muted-foreground"
                   >
-                    {r2ShowPwd ? <EyeOff size={14} /> : <Eye size={14} />}
+                    {vaultShowPwd ? <EyeOff size={14} /> : <Eye size={14} />}
                   </button>
                 </div>
               </div>
@@ -265,26 +355,26 @@ export function WelcomeScreen({ onOpenSidebar }: { onOpenSidebar?: () => void })
               <div className="flex items-center gap-2">
                 <button
                   onClick={handleConnectCloud}
-                  disabled={loading || !r2Token.trim() || !r2Pwd}
+                  disabled={loading || !jwtToken || !vaultPwd}
                   className="flex-1 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center justify-center gap-1.5 hover:opacity-90 active:opacity-80 transition-opacity shadow-sm shadow-primary/20 disabled:opacity-60"
                 >
                   {loading
                     ? <><Loader2 size={13} className="animate-spin" /> Connecting…</>
-                    : <><Cloud size={14} /> {r2Create ? 'Create Vault' : 'Connect Vault'}</>
+                    : <><Cloud size={14} /> {vaultCreate ? 'Create Vault' : 'Connect Vault'}</>
                   }
                 </button>
 
-                {isFileSystemSupported && mode === 'cloud' && (
+                {isFileSystemSupported && (
                   <button
-                    onClick={() => { setR2Create(c => !c); setError(null); }}
+                    onClick={() => { setVaultCreate(c => !c); setError(null); }}
                     className="px-3 py-2 rounded-lg border border-border text-[10px] text-muted-foreground hover:bg-muted transition-colors"
                   >
-                    {r2Create ? 'Existing' : 'New'}
+                    {vaultCreate ? 'Existing' : 'New'}
                   </button>
                 )}
               </div>
 
-              {!isFileSystemSupported && r2Create === false && (
+              {!isFileSystemSupported && vaultCreate === false && (
                 <p className="text-[10px] text-muted-foreground/60 text-center">
                   First time? Create a vault from a desktop browser, then connect here.
                 </p>
