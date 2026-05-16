@@ -14,9 +14,6 @@
 
 export function getApiUrl(): string {
   const override = import.meta.env.VITE_API_URL as string | undefined;
-  if (override) {
-    return override.replace(/\/$/, '');
-  }
-  const base = (import.meta.env.BASE_URL as string).replace(/\/$/, '');
-  return `${base}/api`;
+  const root = override ?? (import.meta.env.BASE_URL as string);
+  return `${root.replace(/\/$/, '')}/api`;
 }
