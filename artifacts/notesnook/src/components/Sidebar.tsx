@@ -4,7 +4,7 @@ import {
   Plus, FolderOpen, FolderX, Sun, Moon, Settings, Search,
   Download, CheckCircle2, ListTodo, Clock, Calendar, CheckCheck,
   FilePlus, RotateCcw, Trash, TagIcon,
-  Lock, LockOpen, ShieldCheck, X,
+  Lock, LockOpen, ShieldCheck, KeyRound, X,
 } from 'lucide-react';
 import { useNotesStore, SidebarSection, STORAGE_LIMIT_BYTES } from '../lib/store';
 import { AccentColor, getAllTags } from '../lib/metadata';
@@ -58,6 +58,9 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
   const enableEncryption      = useNotesStore(s => s.enableEncryption);
   const disableEncryption     = useNotesStore(s => s.disableEncryption);
   const lockVault             = useNotesStore(s => s.lockVault);
+  const setPin                = useNotesStore(s => s.setPin);
+  const clearPin              = useNotesStore(s => s.clearPin);
+  const hasPin                = useNotesStore(s => s.hasPin);
 
   const noteSizes  = useNotesStore(s => s.noteSizes);
 
@@ -78,6 +81,14 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
   const [encPwd2,         setEncPwd2]         = useState('');
   const [encError,        setEncError]        = useState('');
   const [encLoading,      setEncLoading]      = useState(false);
+
+  const [showPinSetting,  setShowPinSetting]  = useState(false);
+  const [pinVaultPwd,     setPinVaultPwd]     = useState('');
+  const [pinNewPin,       setPinNewPin]       = useState('');
+  const [pinConfirmPin,   setPinConfirmPin]   = useState('');
+  const [pinError,        setPinError]        = useState('');
+  const [pinLoading,      setPinLoading]      = useState(false);
+  const pinExists = userId !== null ? hasPin() : false;
 
   // ─── Context menu ─────────────────────────────────────────────────────────
   type CtxItem = { label: string; icon: React.ReactNode; action: () => void; danger?: boolean };
@@ -395,6 +406,90 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
                           {encLoading ? '…' : isVaultEncrypted ? 'Decrypt & disable' : 'Encrypt vault'}
                         </button>
                         <button onClick={() => { setShowEncryption(false); setEncPwd(''); setEncPwd2(''); setEncError(''); }}
+                          className="px-2.5 py-1.5 rounded-md text-[10px] text-sidebar-foreground/50 hover:bg-sidebar-accent transition-colors">
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* PIN quick unlock */}
+            {vaultHandle && isVaultEncrypted && encryptionKey && (
+              <div>
+                <p className="text-[9px] uppercase tracking-widest text-sidebar-foreground/35 mb-1.5 font-semibold">PIN Unlock</p>
+                <div className="rounded-lg border border-sidebar-border/60 overflow-hidden">
+                  {/* Status row */}
+                  <div className="flex items-center gap-2 px-2.5 py-2">
+                    <div className="w-5 h-5 rounded-full bg-sidebar-accent flex items-center justify-center shrink-0">
+                      <KeyRound size={10} className={pinExists ? "text-amber-500" : "text-sidebar-foreground/40"} />
+                    </div>
+                    <span className="text-[11px] text-sidebar-foreground/70 flex-1">
+                      {pinExists ? 'PIN set' : 'Not set'}
+                    </span>
+                  </div>
+
+                  <div className="h-px bg-sidebar-border/40 mx-2" />
+                  {pinExists ? (
+                    <>
+                      <button onClick={() => { setShowPinSetting(p => !p); setPinVaultPwd(''); setPinNewPin(''); setPinConfirmPin(''); setPinError(''); }}
+                        className="w-full flex items-center gap-2 px-2.5 py-2 text-[11px] text-sidebar-foreground/70 hover:bg-sidebar-accent transition-colors">
+                        <KeyRound size={11} className="text-amber-500/60" /> Change PIN
+                      </button>
+                      <button onClick={() => { clearPin(); setShowPinSetting(false); }}
+                        className="w-full flex items-center gap-2 px-2.5 py-2 text-[11px] text-destructive/70 hover:bg-destructive/8 transition-colors">
+                        <LockOpen size={11} /> Remove PIN
+                      </button>
+                    </>
+                  ) : (
+                    <button onClick={() => { setShowPinSetting(p => !p); setPinVaultPwd(''); setPinNewPin(''); setPinConfirmPin(''); setPinError(''); }}
+                      className="w-full flex items-center gap-2 px-2.5 py-2 text-[11px] text-sidebar-foreground/70 hover:bg-sidebar-accent transition-colors">
+                      <KeyRound size={11} className="text-primary/60" /> Set PIN
+                    </button>
+                  )}
+
+                  {/* PIN form */}
+                  {showPinSetting && (
+                    <div className="mx-2 mb-2 mt-1 space-y-1.5 bg-sidebar-accent/40 rounded-md px-2.5 py-2.5">
+                      <p className="text-[10px] text-sidebar-foreground/50 leading-snug">
+                        Set a numeric PIN (4-10 digits) to unlock your vault quickly without entering the full password.
+                      </p>
+                      <input type="password" value={pinVaultPwd} onChange={e => setPinVaultPwd(e.target.value)}
+                        placeholder="Vault password"
+                        className="w-full px-2 py-1.5 rounded-md border border-border/60 bg-background text-[11px] outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40" />
+                      <input type="password" inputMode="numeric" value={pinNewPin}
+                        onChange={e => setPinNewPin(e.target.value.replace(/[^0-9]/g, ''))}
+                        placeholder="New PIN" maxLength={10}
+                        className="w-full px-2 py-1.5 rounded-md border border-border/60 bg-background text-[11px] outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40 tracking-[0.15em]" />
+                      <input type="password" inputMode="numeric" value={pinConfirmPin}
+                        onChange={e => setPinConfirmPin(e.target.value.replace(/[^0-9]/g, ''))}
+                        placeholder="Confirm PIN" maxLength={10}
+                        className="w-full px-2 py-1.5 rounded-md border border-border/60 bg-background text-[11px] outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40 tracking-[0.15em]" />
+                      {pinError && <p className="text-[10px] text-destructive">{pinError}</p>}
+                      <div className="flex gap-1.5 pt-0.5">
+                        <button
+                          disabled={pinLoading}
+                          onClick={async () => {
+                            setPinError('');
+                            if (!pinVaultPwd) { setPinError('Enter your vault password to confirm.'); return; }
+                            if (!pinNewPin || pinNewPin.length < 4) { setPinError('PIN must be 4-10 digits.'); return; }
+                            if (pinNewPin !== pinConfirmPin) { setPinError('PINs do not match.'); return; }
+                            setPinLoading(true);
+                            try {
+                              await setPin(pinNewPin, pinVaultPwd);
+                              setShowPinSetting(false);
+                              setPinVaultPwd(''); setPinNewPin(''); setPinConfirmPin('');
+                            } catch (e: any) {
+                              setPinError(e.message ?? 'Failed to set PIN.');
+                            }
+                            setPinLoading(false);
+                          }}
+                          className="flex-1 py-1.5 rounded-md text-[10px] font-semibold bg-primary text-primary-foreground disabled:opacity-50 hover:bg-primary/90 transition-colors">
+                          {pinLoading ? '…' : 'Save PIN'}
+                        </button>
+                        <button onClick={() => { setShowPinSetting(false); setPinVaultPwd(''); setPinNewPin(''); setPinConfirmPin(''); setPinError(''); }}
                           className="px-2.5 py-1.5 rounded-md text-[10px] text-sidebar-foreground/50 hover:bg-sidebar-accent transition-colors">
                           Cancel
                         </button>

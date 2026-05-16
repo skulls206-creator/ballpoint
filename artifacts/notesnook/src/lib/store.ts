@@ -16,6 +16,10 @@ import {
 import {
   VAULT_KEY_FILENAME, isEncrypted, encryptContent, decryptContent,
   createKeyFileContent, openKeyFile,
+  hasPin as cryptoHasPin,
+  storePin as cryptoStorePin,
+  getVaultPasswordFromPin as cryptoGetPinPassword,
+  clearPin as cryptoClearPin,
 } from './crypto';
 import { saveVersion, reencryptVersions } from './versions';
 import { migrateNoteAttachments } from './attachments';
@@ -169,6 +173,12 @@ interface NotesState {
   lockVault: () => void;
   enableEncryption: (password: string) => Promise<void>;
   disableEncryption: () => Promise<void>;
+
+  // PIN quick unlock
+  hasPin: () => boolean;
+  setPin: (pin: string, vaultPassword: string) => Promise<void>;
+  unlockWithPin: (pin: string) => Promise<boolean>;
+  clearPin: () => void;
 
   // Notes CRUD
   selectNote: (id: string) => Promise<void>;
@@ -1259,6 +1269,34 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
     await deleteVaultFile(vaultHandle, VAULT_KEY_FILENAME);
     set({ encryptionKey: null, isVaultEncrypted: false });
+  },
+
+  // ── PIN quick unlock ───────────────────────────────────────────────────
+
+  hasPin: () => {
+    const { userId } = get();
+    return userId !== null && cryptoHasPin(userId);
+  },
+
+  setPin: async (pin, vaultPassword) => {
+    const { userId } = get();
+    if (userId === null) return;
+    if (pin.length < 4) throw new Error('PIN must be at least 4 characters.');
+    await cryptoStorePin(userId, pin, vaultPassword);
+  },
+
+  unlockWithPin: async (pin) => {
+    const { userId } = get();
+    if (userId === null) return false;
+    const vaultPassword = await cryptoGetPinPassword(userId, pin);
+    if (!vaultPassword) return false;
+    return get().unlockVault(vaultPassword);
+  },
+
+  clearPin: () => {
+    const { userId } = get();
+    if (userId === null) return;
+    cryptoClearPin(userId);
   },
 
   // ── Sync (Lighthouse cloud backup) ───────────────────────────────────────

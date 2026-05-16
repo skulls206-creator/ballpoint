@@ -13,22 +13,51 @@ const LOCAL_USER_ID = 0;
 
 // ─── Vault Lock Screen ────────────────────────────────────────────────────────
 function VaultLockScreen({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
-  const unlockVault = useNotesStore(s => s.unlockVault);
-  const [password, setPassword] = useState('');
-  const [error, setError]       = useState('');
-  const [loading, setLoading]   = useState(false);
+  const unlockVault   = useNotesStore(s => s.unlockVault);
+  const unlockWithPin = useNotesStore(s => s.unlockWithPin);
+  const hasPin        = useNotesStore(s => s.hasPin);
+  const userId        = useNotesStore(s => s.userId);
+
+  const [usePinMode, setUsePinMode]   = useState(userId !== null ? hasPin() : false);
+  const [password, setPassword]       = useState('');
+  const [pin, setPin]                 = useState('');
+  const [error, setError]             = useState('');
+  const [loading, setLoading]         = useState(false);
 
   const handleUnlock = async () => {
-    if (!password) return;
     setLoading(true);
     setError('');
-    const ok = await unlockVault(password);
-    if (!ok) {
-      setError('Wrong password — try again.');
-      setPassword('');
+    if (usePinMode) {
+      if (!pin) { setError('Enter your PIN.'); setLoading(false); return; }
+      const ok = await unlockWithPin(pin);
+      if (!ok) {
+        setError('Wrong PIN — try again.');
+        setPin('');
+      }
+    } else {
+      if (!password) { setError('Enter your password.'); setLoading(false); return; }
+      const ok = await unlockVault(password);
+      if (!ok) {
+        setError('Wrong password — try again.');
+        setPassword('');
+      }
     }
     setLoading(false);
   };
+
+  const switchMode = () => {
+    setUsePinMode(p => !p);
+    setError('');
+    setPassword('');
+    setPin('');
+  };
+
+  // Re-evaluate on rerender in case of localStorage change
+  useEffect(() => {
+    if (userId !== null) {
+      setUsePinMode(hasPin());
+    }
+  }, [userId, hasPin]);
 
   return (
     <div className="flex-1 flex flex-col bg-background">
@@ -50,26 +79,53 @@ function VaultLockScreen({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
             </div>
             <h2 className="text-sm font-semibold text-foreground">Vault Locked</h2>
             <p className="text-[11px] text-muted-foreground text-center leading-relaxed">
-              This vault is encrypted. Enter your password to unlock.
+              {usePinMode
+                ? 'Enter your PIN to quickly unlock.'
+                : 'This vault is encrypted. Enter your password to unlock.'}
             </p>
           </div>
-          <input
-            type="password"
-            value={password}
-            onChange={e => setPassword(e.target.value)}
-            onKeyDown={e => e.key === 'Enter' && handleUnlock()}
-            placeholder="Encryption password"
-            autoFocus
-            className="w-full px-3 py-2.5 rounded-md border border-border bg-background text-[13px] outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40"
-          />
-          {error && <p className="text-[11px] text-destructive">{error}</p>}
+          {usePinMode ? (
+            <input
+              type="password"
+              inputMode="numeric"
+              value={pin}
+              onChange={e => setPin(e.target.value.replace(/[^0-9]/g, ''))}
+              onKeyDown={e => e.key === 'Enter' && handleUnlock()}
+              placeholder="Enter PIN"
+              autoFocus
+              maxLength={10}
+              className="w-full px-3 py-2.5 rounded-md border border-border bg-background text-[13px] outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40 text-center tracking-[0.3em]"
+            />
+          ) : (
+            <input
+              type="password"
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleUnlock()}
+              placeholder="Encryption password"
+              autoFocus
+              className="w-full px-3 py-2.5 rounded-md border border-border bg-background text-[13px] outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40"
+            />
+          )}
+          {error && <p className="text-[11px] text-destructive text-center">{error}</p>}
           <button
             onClick={handleUnlock}
-            disabled={!password || loading}
+            disabled={(usePinMode ? !pin : !password) || loading}
             className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors"
           >
             {loading ? 'Unlocking…' : 'Unlock Vault'}
           </button>
+          {usePinMode ? (
+            <button onClick={switchMode}
+              className="w-full text-[11px] text-muted-foreground hover:text-foreground transition-colors underline-offset-2 hover:underline">
+              Use password instead
+            </button>
+          ) : userId !== null && hasPin() && (
+            <button onClick={switchMode}
+              className="w-full text-[11px] text-muted-foreground hover:text-foreground transition-colors underline-offset-2 hover:underline">
+              Use PIN instead
+            </button>
+          )}
         </div>
       </div>
     </div>

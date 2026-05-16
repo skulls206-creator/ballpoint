@@ -99,3 +99,82 @@ export async function openKeyFile(
     return null;
   }
 }
+
+// ── PIN-based quick unlock ────────────────────────────────────────────────────
+// Encrypts the vault password with a PIN-derived key and stores it in localStorage.
+// On PIN unlock, decrypts to get the vault password, then feeds it to unlockVault().
+
+const PIN_STORAGE_PREFIX = 'ballpoint-pin-';
+
+function pinStorageKey(userId: number): string {
+  return `${PIN_STORAGE_PREFIX}${userId}`;
+}
+
+export function hasPin(userId: number): boolean {
+  try {
+    return localStorage.getItem(pinStorageKey(userId)) !== null;
+  } catch {
+    return false;
+  }
+}
+
+export async function storePin(
+  userId: number,
+  pin: string,
+  vaultPassword: string
+): Promise<void> {
+  const salt = window.crypto.getRandomValues(new Uint8Array(16));
+  const key = await deriveKey(pin, salt);
+  const iv = window.crypto.getRandomValues(new Uint8Array(12));
+  const ciphertext = await window.crypto.subtle.encrypt(
+    { name: 'AES-GCM', iv },
+    key,
+    new TextEncoder().encode(vaultPassword)
+  );
+  const combined = new Uint8Array(12 + ciphertext.byteLength);
+  combined.set(iv);
+  combined.set(new Uint8Array(ciphertext), 12);
+  const b64 = btoa(String.fromCharCode(...combined));
+  const data = JSON.stringify({
+    v: 1,
+    salt: Array.from(salt).map(b => b.toString(16).padStart(2, '0')).join(''),
+    data: b64,
+  });
+  try {
+    localStorage.setItem(pinStorageKey(userId), data);
+  } catch { /* private browsing */ }
+}
+
+export async function getVaultPasswordFromPin(
+  userId: number,
+  pin: string
+): Promise<string | null> {
+  try {
+    const raw = localStorage.getItem(pinStorageKey(userId));
+    if (!raw) return null;
+    const { salt: saltHex, data: b64 } = JSON.parse(raw) as {
+      v: number; salt: string; data: string;
+    };
+    const salt = new Uint8Array(
+      saltHex.match(/.{2}/g)!.map((h: string) => parseInt(h, 16))
+    );
+    const key = await deriveKey(pin, salt);
+    const combined = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+    const iv = combined.slice(0, 12);
+    const ciphertext = combined.slice(12);
+    const decrypted = await window.crypto.subtle.decrypt(
+      { name: 'AES-GCM', iv },
+      key,
+      ciphertext
+    );
+    return new TextDecoder().decode(decrypted);
+  } catch {
+    return null;
+  }
+}
+
+export function clearPin(userId: number): void {
+  try {
+    localStorage.removeItem(pinStorageKey(userId));
+  } catch { /* private browsing */ }
+}
