@@ -688,7 +688,7 @@ function AttachmentStrip({
     setDownloading(info.name);
     try {
       const data = await readAttachment(vault, noteId, info.name, encryptionKey);
-      const blob = new Blob([data], { type: info.mime });
+      const blob = new Blob([data as BlobPart], { type: info.mime });
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement('a');
       a.href = url; a.download = info.name; a.click();
@@ -1297,7 +1297,7 @@ export function Editor({ onBack }: { onBack?: () => void }) {
   const moreMenuRef          = useRef<HTMLDivElement>(null);
   const titleRef             = useRef<HTMLInputElement>(null);
   const textareaRef          = useRef<HTMLTextAreaElement>(null);
-  const saveTimerRef         = useRef<ReturnType<typeof setTimeout>>();
+  const saveTimerRef         = useRef<ReturnType<typeof setTimeout> | null>(null);
   // key bumped on drop so AttachmentStrip re-mounts and reloads its file list
   const [dropKey,       setDropKey]       = useState(0);
 
@@ -1365,11 +1365,11 @@ export function Editor({ onBack }: { onBack?: () => void }) {
   // Autosave 1.5s after last keystroke
   const handleContentChange = useCallback((content: string) => {
     updateContent(content);
-    clearTimeout(saveTimerRef.current);
+    clearTimeout(saveTimerRef.current ?? undefined);
     saveTimerRef.current = setTimeout(() => saveActiveNote(), 1500);
   }, [updateContent, saveActiveNote]);
 
-  useEffect(() => () => clearTimeout(saveTimerRef.current), []);
+  useEffect(() => () => clearTimeout(saveTimerRef.current ?? undefined), []);
 
   // Drag-and-drop file handler for the whole editor pane
   const handleEditorDrop = useCallback(async (e: React.DragEvent) => {

@@ -111,7 +111,7 @@ async function fireNotification(title: string, body: string, noteId?: string) {
           { action: 'open',    title: 'Open' },
           { action: 'dismiss', title: 'Dismiss' },
         ],
-      });
+      } as any);
       playChime();
       return;
     } catch { /* fall through to Notification API */ }

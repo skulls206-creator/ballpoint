@@ -25,8 +25,8 @@ function vaultKey(userId: number) {
   return `ballpoint-vault-${userId}`;
 }
 
-async function verifyPermission(handle: FileSystemHandle, readWrite: boolean): Promise<boolean> {
-  const opts: FileSystemHandlePermissionDescriptor = { mode: readWrite ? 'readwrite' : 'read' };
+async function verifyPermission(handle: any, readWrite: boolean): Promise<boolean> {
+  const opts: any = { mode: readWrite ? 'readwrite' : 'read' };
   if ((await handle.queryPermission(opts)) === 'granted') return true;
   if ((await handle.requestPermission(opts)) === 'granted') return true;
   return false;
@@ -34,7 +34,7 @@ async function verifyPermission(handle: FileSystemHandle, readWrite: boolean): P
 
 export async function openVault(userId: number): Promise<FileSystemDirectoryHandle | null> {
   try {
-    const dir = await window.showDirectoryPicker({ mode: 'readwrite' });
+    const dir = await (window as any).showDirectoryPicker({ mode: 'readwrite' });
     await set(vaultKey(userId), dir);
     return dir;
   } catch (e: any) {

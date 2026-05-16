@@ -210,14 +210,14 @@ export function selectTasksFiltered(
         break;
         
       case 'priority':
-        const priorityOrder: Record<Task['priority'], number> = {
+        const priorityOrder: Record<string, number> = {
           urgent: 4,
           high: 3,
           medium: 2,
           low: 1,
           undefined: 0
         };
-        comparison = (priorityOrder[a.priority ?? undefined] || 0) - (priorityOrder[b.priority ?? undefined] || 0);
+        comparison = (priorityOrder[a.priority ?? 'undefined'] || 0) - (priorityOrder[b.priority ?? 'undefined'] || 0);
         break;
         
       case 'createdAt':

@@ -1137,7 +1137,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   },
 
   setTaskPriority: async (taskId, priority) => {
-    const { tasks } = get();
+    const { tasks, userId } = get();
     if (userId === null) return;
     const task = tasks[taskId];
     if (!task) return;
@@ -1149,7 +1149,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   },
 
   setTaskDescription: async (taskId, description) => {
-    const { tasks } = get();
+    const { tasks, userId } = get();
     if (userId === null) return;
     const task = tasks[taskId];
     if (!task) return;
@@ -1161,7 +1161,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   },
 
   setTaskSubtasks: async (taskId, subtasks) => {
-    const { tasks } = get();
+    const { tasks, userId } = get();
     if (userId === null) return;
     const task = tasks[taskId];
     if (!task) return;

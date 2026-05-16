@@ -77,7 +77,7 @@ export async function getKavachSignedToken(
   walletAddress: string,
 ): Promise<string> {
   const { data } = await lighthouse.getAuthMessage(walletAddress);
-  const challengeMessage: string = data?.message;
+  const challengeMessage = data?.message;
   if (!challengeMessage) throw new Error("Failed to retrieve Kavach auth message from Lighthouse");
   const { signature } = await signMessage(jwtToken, challengeMessage);
   return signature;

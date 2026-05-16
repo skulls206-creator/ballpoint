@@ -11,7 +11,7 @@ export function isEncryptedBytes(data: Uint8Array): boolean {
 
 export async function encryptBytes(data: Uint8Array, key: CryptoKey): Promise<Uint8Array> {
   const iv = window.crypto.getRandomValues(new Uint8Array(12));
-  const ciphertext = await window.crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, data);
+  const ciphertext = await window.crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, data as any);
   const out = new Uint8Array(4 + 12 + ciphertext.byteLength);
   out.set(BINARY_MAGIC, 0);
   out.set(iv, 4);
@@ -40,7 +40,7 @@ export async function deriveKey(password: string, salt: Uint8Array): Promise<Cry
     ['deriveKey']
   );
   return window.crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt, iterations: 200_000, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt: salt as any, iterations: 200_000, hash: 'SHA-256' },
     keyMaterial,
     { name: 'AES-GCM', length: 256 },
     false,

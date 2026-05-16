@@ -33,7 +33,7 @@ async function downloadAsZip(snapshots: NoteSnapshot[], label: string) {
     files[deduped] = strToU8(snap.content);
   }
   const zipped = zipSync(files);
-  const blob = new Blob([zipped], { type: 'application/zip' });
+  const blob = new Blob([zipped as BlobPart], { type: 'application/zip' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;

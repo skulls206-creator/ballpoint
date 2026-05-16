@@ -8,14 +8,14 @@ import { useNotesStore } from '../lib/store';
 import { Task } from '../lib/tasks';
 import { cn } from '../lib/utils';
 
-const PRIORITY_COLORS: Record<Task['priority'], string> = {
+const PRIORITY_COLORS: Record<NonNullable<Task['priority']>, string> = {
   urgent: 'bg-red-500',
   high: 'bg-orange-500',
   medium: 'bg-yellow-500',
   low: 'bg-blue-500',
 };
 
-const PRIORITY_LABELS: Record<Task['priority'], string> = {
+const PRIORITY_LABELS: Record<NonNullable<Task['priority']>, string> = {
   urgent: 'Urgent',
   high: 'High',
   medium: 'Medium',

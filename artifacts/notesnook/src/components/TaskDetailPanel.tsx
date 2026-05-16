@@ -12,7 +12,7 @@ interface Props {
   onMobile?: boolean;
 }
 
-const PRIORITY_OPTIONS: { value: Task['priority']; label: string; color: string }[] = [
+const PRIORITY_OPTIONS: { value: NonNullable<Task['priority']>; label: string; color: string }[] = [
   { value: 'urgent', label: 'Urgent', color: 'bg-red-500' },
   { value: 'high',   label: 'High',   color: 'bg-orange-500' },
   { value: 'medium', label: 'Medium', color: 'bg-yellow-500' },
