@@ -1179,8 +1179,9 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const { vaultHandle, proxyVault, r2Token, userId, notes, tasks: existingTasks } = get();
     if (userId === null) return false;
 
-    // ── R2 cloud vault path ───────────────────────────────────────────────
-    if (!vaultHandle && proxyVault === '__r2_cloud__') {
+    // ── R2 cloud vault path (r2Mode is set by init() on reload) ──────────
+    const { r2Mode: r2m } = get();
+    if ((!vaultHandle && proxyVault === '__r2_cloud__') || (!vaultHandle && r2m)) {
       // If we don't have a token, try to restore it from localStorage
       let token = r2Token;
       if (!token) {
