@@ -2,7 +2,18 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "path";
+import { execSync } from "child_process";
 import runtimeErrorOverlay from "@replit/vite-plugin-runtime-error-modal";
+
+function getBuildInfo() {
+  try {
+    const commit = execSync("git rev-parse --short HEAD", { encoding: "utf-8" }).trim();
+    const buildTime = new Date().toISOString();
+    return JSON.stringify({ commit, buildTime, label: `${commit}` });
+  } catch {
+    return JSON.stringify({ commit: "no-git", buildTime: new Date().toISOString(), label: "no-git" });
+  }
+}
 
 const isBuild = process.env.NODE_ENV === "production" || process.argv.includes("build");
 
@@ -22,6 +33,9 @@ if (!basePath) {
 
 export default defineConfig({
   base: basePath,
+  define: {
+    __BUILD_INFO__: JSON.stringify(getBuildInfo()),
+  },
   plugins: [
     react(),
     tailwindcss(),

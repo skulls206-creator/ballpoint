@@ -10,6 +10,7 @@ import { useNotesStore, SidebarSection, STORAGE_LIMIT_BYTES } from '../lib/store
 import { AccentColor, getAllTags } from '../lib/metadata';
 import { selectTaskCounts } from '../lib/tasks';
 import { usePWAInstall } from '../lib/usePWAInstall';
+import { getBuildInfo } from '../lib/buildInfo';
 import { cn } from '../lib/utils';
 import {
   Dialog,
@@ -668,6 +669,13 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
           </button>
         </div>
       )}
+
+      {/* Build number — very bottom of sidebar */}
+      <div className="px-3 py-1.5 border-t border-sidebar-border flex-shrink-0">
+        <span className="text-[8px] text-sidebar-foreground/20 font-mono select-none">
+          {getBuildInfo().label}
+        </span>
+      </div>
     </aside>
 
     {/* ── Context menu overlay ─────────────────────────────────────── */}
