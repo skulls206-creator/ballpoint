@@ -132,6 +132,7 @@ export default function Home() {
   const isLoading         = useNotesStore(s => s.isLoading);
   const isVaultEncrypted  = useNotesStore(s => s.isVaultEncrypted);
   const encryptionKey     = useNotesStore(s => s.encryptionKey);
+  const r2Mode            = useNotesStore(s => s.r2Mode);
   const activeNoteId      = useNotesStore(s => s.activeNoteId);
   const activeSection     = useNotesStore(s => s.activeSection);
   const init              = useNotesStore(s => s.init);
@@ -221,7 +222,8 @@ export default function Home() {
     </>
   );
 
-  if (!vaultHandle && proxyVault === null) {
+  // R2 cloud vault on reload: show unlock screen instead of WelcomeScreen
+  if ((!vaultHandle && proxyVault === null) && !r2Mode) {
     return (
       <div className="flex h-screen w-full bg-background overflow-hidden relative">
         {sidebarDrawer}
@@ -231,7 +233,8 @@ export default function Home() {
     );
   }
 
-  // Vault is open but locked — show password prompt
+  // Vault is open but locked — show password/PIN prompt
+  // R2 cloud vaults always have isVaultEncrypted=true once opened
   if (isVaultEncrypted && !encryptionKey) {
     return (
       <div className="flex h-screen w-full bg-background overflow-hidden text-foreground relative">
