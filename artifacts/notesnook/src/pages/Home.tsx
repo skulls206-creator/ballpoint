@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Lock, Menu } from 'lucide-react';
+import { Lock, Mail, LogIn, AlertCircle, Menu, ArrowLeft, X, Loader2 } from 'lucide-react';
 import { useNotesStore } from '../lib/store';
+import { getApiUrl } from '../lib/apiUrl';
 import { WelcomeScreen } from '../components/WelcomeScreen';
 import { Sidebar } from '../components/Sidebar';
 import { NoteList } from '../components/NoteList';
@@ -8,6 +9,8 @@ import { Editor } from '../components/Editor';
 import { TaskWorkspace } from '../components/TaskWorkspace';
 import { CommandPalette } from '../components/CommandPalette';
 import { cn } from '../lib/utils';
+
+const API = getApiUrl();
 
 const LOCAL_USER_ID = 0;
 
@@ -17,12 +20,57 @@ function VaultLockScreen({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
   const unlockWithPin = useNotesStore(s => s.unlockWithPin);
   const hasPin        = useNotesStore(s => s.hasPin);
   const userId        = useNotesStore(s => s.userId);
+  const r2Mode        = useNotesStore(s => s.r2Mode);
+
+  // ── Re-auth state (needed when cloud vault token is missing after update) ──
+  const [showReAuth,  setShowReAuth]  = useState(false);
+  const [reauthEmail, setReauthEmail] = useState('');
+  const [reauthPwd,   setReauthPwd]   = useState('');
+  const [reauthErr,   setReauthErr]   = useState('');
+  const [reauthLoad,  setReauthLoad]  = useState(false);
 
   const [usePinMode, setUsePinMode]   = useState(userId !== null ? hasPin() : false);
   const [password, setPassword]       = useState('');
   const [pin, setPin]                 = useState('');
   const [error, setError]             = useState('');
   const [loading, setLoading]         = useState(false);
+
+  // Detect missing R2 token on first mount
+  const needsReAuth = r2Mode && (() => {
+    try {
+      const tok = localStorage.getItem('ballpoint-r2-token');
+      return !tok;
+    } catch { return true; }
+  })();
+
+  const handleReAuth = async () => {
+    setReauthErr('');
+    if (!reauthEmail.trim() || !reauthPwd) { setReauthErr('Enter email and password.'); return; }
+    setReauthLoad(true);
+    try {
+      const res = await fetch(`${API}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: reauthEmail.trim(), password: reauthPwd }),
+      });
+      const text = await res.text();
+      let data: any;
+      try { data = JSON.parse(text); } catch { data = { error: text }; }
+      if (!res.ok) throw new Error(data?.error ?? data?.message ?? 'Auth failed');
+
+      // Persist the fresh token
+      try { localStorage.setItem('ballpoint-r2-token', data.token); } catch {}
+      // Close re-auth and try password flow normally
+      setShowReAuth(false);
+      setReauthEmail('');
+      setReauthPwd('');
+      setError('');
+    } catch (e: any) {
+      setReauthErr(e.message ?? 'Login failed.');
+    } finally {
+      setReauthLoad(false);
+    }
+  };
 
   const handleUnlock = async () => {
     setLoading(true);
@@ -38,7 +86,14 @@ function VaultLockScreen({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
       if (!password) { setError('Enter your password.'); setLoading(false); return; }
       const ok = await unlockVault(password);
       if (!ok) {
-        setError('Wrong password — try again.');
+        // Check if the failure was due to missing token, not wrong password
+        const hasToken = (() => { try { return !!localStorage.getItem('ballpoint-r2-token'); } catch { return false; } })();
+        if (r2Mode && !hasToken) {
+          setShowReAuth(true);
+          setError('Session expired. Log in again to refresh your cloud vault token.');
+        } else {
+          setError('Wrong password — try again.');
+        }
         setPassword('');
       }
     }
@@ -51,6 +106,65 @@ function VaultLockScreen({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
     setPassword('');
     setPin('');
   };
+
+  // ── Re-auth screen ──────────────────────────────────────────────────────────
+  if (showReAuth) {
+    return (
+      <div className="flex-1 flex flex-col bg-background">
+        <div className="md:hidden flex items-center h-12 px-4 border-b border-border shrink-0">
+          <button onClick={onOpenSidebar} className="w-9 h-9 flex items-center justify-center rounded-lg text-foreground/60 hover:text-foreground hover:bg-muted transition-colors">
+            <Menu size={20} />
+          </button>
+          <span className="ml-2 text-sm font-semibold text-foreground">Ballpoint</span>
+        </div>
+        <div className="flex-1 flex items-center justify-center px-4">
+          <div className="w-full max-w-xs p-6 rounded-2xl border border-border bg-card shadow-2xl space-y-4">
+            <div className="flex flex-col items-center gap-2 pb-1">
+              <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+                <LogIn size={22} className="text-primary" />
+              </div>
+              <h2 className="text-sm font-semibold text-foreground">Re-authenticate</h2>
+              <p className="text-[11px] text-muted-foreground text-center leading-relaxed">
+                Your vault session expired. Log in to refresh your cloud vault token.
+              </p>
+            </div>
+            <input
+              type="email"
+              value={reauthEmail}
+              onChange={e => setReauthEmail(e.target.value)}
+              placeholder="Email"
+              autoComplete="email"
+              autoFocus
+              className="w-full px-3 py-2.5 rounded-md border border-border bg-background text-[13px] outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40"
+            />
+            <input
+              type="password"
+              value={reauthPwd}
+              onChange={e => setReauthPwd(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleReAuth()}
+              placeholder="Password"
+              autoComplete="current-password"
+              className="w-full px-3 py-2.5 rounded-md border border-border bg-background text-[13px] outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40"
+            />
+            {reauthErr && <p className="text-[11px] text-destructive text-center">{reauthErr}</p>}
+            <button
+              onClick={handleReAuth}
+              disabled={!reauthEmail.trim() || !reauthPwd || reauthLoad}
+              className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors"
+            >
+              {reauthLoad ? <><Loader2 size={14} className="animate-spin inline mr-1" /> Logging in…</> : 'Log In'}
+            </button>
+            <button
+              onClick={() => { setShowReAuth(false); setReauthErr(''); }}
+              className="w-full text-[11px] text-muted-foreground hover:text-foreground transition-colors underline-offset-2 hover:underline"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex-1 flex flex-col bg-background">
@@ -72,52 +186,87 @@ function VaultLockScreen({ onOpenSidebar }: { onOpenSidebar?: () => void }) {
             </div>
             <h2 className="text-sm font-semibold text-foreground">Vault Locked</h2>
             <p className="text-[11px] text-muted-foreground text-center leading-relaxed">
-              {usePinMode
-                ? 'Enter your PIN to quickly unlock.'
-                : 'This vault is encrypted. Enter your password to unlock.'}
+              {needsReAuth
+                ? 'Session expired — log in below.'
+                : usePinMode
+                  ? 'Enter your PIN to quickly unlock.'
+                  : 'This vault is encrypted. Enter your password to unlock.'}
             </p>
           </div>
-          {usePinMode ? (
-            <input
-              type="password"
-              inputMode="numeric"
-              value={pin}
-              onChange={e => setPin(e.target.value.replace(/[^0-9]/g, ''))}
-              onKeyDown={e => e.key === 'Enter' && handleUnlock()}
-              placeholder="Enter PIN"
-              autoFocus
-              maxLength={10}
-              className="w-full px-3 py-2.5 rounded-md border border-border bg-background text-[13px] outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40 text-center tracking-[0.3em]"
-            />
+          {needsReAuth ? (
+            <>
+              <input
+                type="email"
+                value={reauthEmail}
+                onChange={e => setReauthEmail(e.target.value)}
+                placeholder="Email"
+                autoComplete="email"
+                autoFocus
+                className="w-full px-3 py-2.5 rounded-md border border-border bg-background text-[13px] outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40"
+              />
+              <input
+                type="password"
+                value={reauthPwd}
+                onChange={e => setReauthPwd(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleReAuth()}
+                placeholder="Password"
+                autoComplete="current-password"
+                className="w-full px-3 py-2.5 rounded-md border border-border bg-background text-[13px] outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40"
+              />
+              {reauthErr && <p className="text-[11px] text-destructive text-center">{reauthErr}</p>}
+              <button
+                onClick={handleReAuth}
+                disabled={!reauthEmail.trim() || !reauthPwd || reauthLoad}
+                className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors"
+              >
+                {reauthLoad ? <><Loader2 size={14} className="animate-spin inline mr-1" /> Logging in…</> : 'Log In'}
+              </button>
+            </>
           ) : (
-            <input
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && handleUnlock()}
-              placeholder="Encryption password"
-              autoFocus
-              className="w-full px-3 py-2.5 rounded-md border border-border bg-background text-[13px] outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40"
-            />
-          )}
-          {error && <p className="text-[11px] text-destructive text-center">{error}</p>}
-          <button
-            onClick={handleUnlock}
-            disabled={(usePinMode ? !pin : !password) || loading}
-            className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors"
-          >
-            {loading ? 'Unlocking…' : 'Unlock Vault'}
-          </button>
-          {usePinMode ? (
-            <button onClick={switchMode}
-              className="w-full text-[11px] text-muted-foreground hover:text-foreground transition-colors underline-offset-2 hover:underline">
-              Use password instead
-            </button>
-          ) : userId !== null && hasPin() && (
-            <button onClick={switchMode}
-              className="w-full text-[11px] text-muted-foreground hover:text-foreground transition-colors underline-offset-2 hover:underline">
-              Use PIN instead
-            </button>
+            <>
+              {usePinMode ? (
+                <input
+                  type="password"
+                  inputMode="numeric"
+                  value={pin}
+                  onChange={e => setPin(e.target.value.replace(/[^0-9]/g, ''))}
+                  onKeyDown={e => e.key === 'Enter' && handleUnlock()}
+                  placeholder="Enter PIN"
+                  autoFocus
+                  maxLength={10}
+                  className="w-full px-3 py-2.5 rounded-md border border-border bg-background text-[13px] outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40 text-center tracking-[0.3em]"
+                />
+              ) : (
+                <input
+                  type="password"
+                  value={password}
+                  onChange={e => setPassword(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && handleUnlock()}
+                  placeholder="Encryption password"
+                  autoFocus
+                  className="w-full px-3 py-2.5 rounded-md border border-border bg-background text-[13px] outline-none focus:ring-1 focus:ring-ring placeholder:text-muted-foreground/40"
+                />
+              )}
+              {error && <p className="text-[11px] text-destructive text-center">{error}</p>}
+              <button
+                onClick={handleUnlock}
+                disabled={(usePinMode ? !pin : !password) || loading}
+                className="w-full py-2.5 rounded-lg bg-primary text-primary-foreground text-sm font-medium disabled:opacity-50 hover:bg-primary/90 transition-colors"
+              >
+                {loading ? 'Unlocking…' : 'Unlock Vault'}
+              </button>
+              {usePinMode ? (
+                <button onClick={switchMode}
+                  className="w-full text-[11px] text-muted-foreground hover:text-foreground transition-colors underline-offset-2 hover:underline">
+                  Use password instead
+                </button>
+              ) : userId !== null && hasPin() && (
+                <button onClick={switchMode}
+                  className="w-full text-[11px] text-muted-foreground hover:text-foreground transition-colors underline-offset-2 hover:underline">
+                  Use PIN instead
+                </button>
+              )}
+            </>
           )}
         </div>
       </div>

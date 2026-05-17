@@ -1180,17 +1180,23 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     if (userId === null) return false;
 
     // ── R2 cloud vault path ───────────────────────────────────────────────
-    if (!vaultHandle && proxyVault === '__r2_cloud__' && r2Token) {
-      const keyContent = await getR2Key(r2Token);
+    if (!vaultHandle && proxyVault === '__r2_cloud__') {
+      // If we don't have a token, try to restore it from localStorage
+      let token = r2Token;
+      if (!token) {
+        try { token = localStorage.getItem('ballpoint-r2-token'); } catch { /* private browsing */ }
+      }
+      if (!token) return false; // caller should ask for re-auth
+      const keyContent = await getR2Key(token);
       if (!keyContent) return false;
       const key = await openKeyFile(keyContent, password);
       if (!key) return false;
 
       // Load all notes + metadata + tasks from R2 (same as openR2Vault)
       const [noteList, cloudMetaJson, cloudTasksJson] = await Promise.all([
-        listR2Notes(r2Token),
-        getR2Metadata(r2Token),
-        getR2Tasks(r2Token),
+        listR2Notes(token),
+        getR2Metadata(token),
+        getR2Tasks(token),
       ]);
 
       const proxyContent: Record<string, string> = {};
@@ -1198,7 +1204,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
       await Promise.allSettled(
         noteList.map(async info => {
           try {
-            const enc = await getR2Note(r2Token, info.key);
+            const enc = await getR2Note(token, info.key);
             const dec = isEncrypted(enc) ? await decryptContent(enc, key) : enc;
             proxyContent[info.key] = dec;
             noteSizes[info.key] = new TextEncoder().encode(dec).length;
@@ -1245,8 +1251,10 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         r2Status: 'idle', r2Error: null, r2LastSynced: Date.now(),
       });
 
-      startR2BackgroundSync(userId, () => get().r2Token!);
-      flushR2Queue(userId, r2Token).catch(() => {});
+      // Persist token for future reloads & notify the current state
+      set({ r2Token: token });
+      startR2BackgroundSync(userId, () => token!);
+      flushR2Queue(userId, token).catch(() => {});
 
       const first = mergedNotes.find(n => n.status === 'active');
       if (first) get().selectNote(first.id);
