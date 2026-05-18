@@ -4,7 +4,7 @@ import {
   Star, Trash2, Edit2, Archive, RotateCcw,
   Trash, FileText, Bell, Copy, ExternalLink, Menu, Plus,
   Cloud, CloudOff, UploadCloud,
-  Pin, PinOff, Lock,
+  Pin, PinOff, Lock, LockOpen,
 } from 'lucide-react';
 import { useNotesStore, selectFilteredNotes, isTaskSection } from '../lib/store';
 import { TaskList } from './TaskList';
@@ -162,6 +162,9 @@ export function NoteList({ onOpenSidebar, onNoteOpen }: { onOpenSidebar?: () => 
   const setNoteStatus         = useNotesStore(s => s.setNoteStatus);
   const renameNote            = useNotesStore(s => s.renameNote);
   const createNewNote         = useNotesStore(s => s.createNewNote);
+  const sessionLock           = useNotesStore(s => s.sessionLock);
+  const sessionUnlock         = useNotesStore(s => s.sessionUnlock);
+  const sessionUnlockedIds    = useNotesStore(s => s.sessionUnlockedIds);
 
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState('');
@@ -317,7 +320,44 @@ export function NoteList({ onOpenSidebar, onNoteOpen }: { onOpenSidebar?: () => 
                 {/* Title row */}
                 <div className="flex items-center gap-1 min-w-0">
                   {note.isPinned && <Pin size={9} className="text-primary/60 shrink-0" />}
-                  {note.locked  && <Lock size={9} className="text-amber-500/80 shrink-0" />}
+                  {/* Lock toggle — clickable lock icon for all non-trash notes */}
+                  {!inTrash && !inArchive && (
+                    <button
+                      onClick={e => {
+                        e.stopPropagation();
+                        if (note.locked && sessionUnlockedIds.has(note.id)) {
+                          // Session-unlocked → lock back
+                          sessionLock(note.id);
+                        } else if (note.locked) {
+                          // Perma-locked → open note to unlock screen
+                          selectNote(note.id);
+                          onNoteOpen?.();
+                        }
+                        // No else: non-locked notes don't toggle from here (use context menu)
+                      }}
+                      className={cn(
+                        "shrink-0 transition-colors",
+                        note.locked
+                          ? sessionUnlockedIds.has(note.id)
+                            ? "text-amber-400 hover:text-amber-500"
+                            : "text-amber-500/80 hover:text-amber-400"
+                          : "text-muted-foreground/15 hover:text-muted-foreground/40"
+                      )}
+                      title={
+                        note.locked
+                          ? sessionUnlockedIds.has(note.id)
+                            ? 'Click to lock (stays locked for this session)'
+                            : 'Note is locked — click to open'
+                          : 'No lock set — right-click to add one'
+                      }
+                    >
+                      {note.locked && sessionUnlockedIds.has(note.id) ? (
+                        <LockOpen size={9} />
+                      ) : (
+                        <Lock size={9} />
+                      )}
+                    </button>
+                  )}
                   {note.isFavorite && <Star size={10} className="text-primary shrink-0 fill-primary" />}
                   {note.hasReminder && note.reminderStatus === 'fired' && (
                     <Bell size={10} className="text-orange-400 shrink-0" />

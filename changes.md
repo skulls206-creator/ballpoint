@@ -1,6 +1,25 @@
-# Ballpoint — After Action Report (AAR)
+# Ballpoint — changes
 
 > Shared change log so any AI builder (Replit Agent, Claude, Cursor, etc.) or human can pick up where the last one left off. **Newest entry on top.** One entry per meaningful edit, build, or deploy. Include commit SHA(s) so the next reader can `git show <sha>` for exact diffs.
+
+---
+## 2026-05-18 — Sidebar lock icon + session auto-lock timer
+**Author:** Satoshi (OpenClaw)
+**Scope:** `artifacts/notesnook/src/components/NoteList.tsx`, `artifacts/notesnook/src/components/Sidebar.tsx`, `artifacts/notesnook/src/lib/store.ts`, `changes.md` (renamed from AAR.md)
+**Changes:**
+
+- **NoteList.tsx:** Every note in the sidebar now shows a lock icon you can click. States:
+  - Locked + session-locked → amber lock icon, click opens the note to lock screen
+  - Locked + session-unlocked → unlocked icon, click locks it back instantly (no password re-entry)
+  - No lock set → very faint outline lock, hint says "right-click to add one"
+- **store.ts:** Added session auto-lock timer:
+  - Module-level `_sessionLockTimer` that fires after a configurable timeout
+  - `sessionLockTimeoutMs` state field (0 = disabled)
+  - `setSessionLockTimeout(ms)` action to change the timeout
+  - Timer restarts automatically whenever `sessionUnlock` or `sessionLock` is called
+  - Clears editor content if the active note gets locked by the timer firing
+- **Sidebar.tsx:** New "Auto-Lock Timer" section in the settings panel (gear icon) with preset buttons: Off / 30s / 1m / 5m / 15m
+- **changes.md:** Renamed from AAR.md per Skulls' request
 
 ---
 ## 2026-05-16 — GH Pages login working + Cloud Vault sidebar parity (iOS PIN fix)
@@ -36,7 +55,7 @@ User had 6 notes loaded on the Cloud Vault but the sidebar settings showed only 
 ## 2026-05-16 — Pulled remote into Replit via GitHub API (git ops blocked)
 **Author:** Replit Agent (Task #9)
 **Commits pulled in:** `7c33953`, `884c357`, `92533e4`, `79650ae`
-**Scope:** `AAR.md`, `artifacts/notesnook/.env.example`, `artifacts/notesnook/src/components/WelcomeScreen.tsx`, `artifacts/notesnook/src/lib/apiUrl.ts`
+**Scope:** `changes.md`, `artifacts/notesnook/.env.example`, `artifacts/notesnook/src/components/WelcomeScreen.tsx`, `artifacts/notesnook/src/lib/apiUrl.ts`
 **Changes:**
 - Replit main-agent sandbox blocks `git fetch` / `git reset --hard`, so this sync was done via the GitHub Contents API instead of git. Each of the 4 changed files was downloaded at `ref=79650ae` and overwritten in the local working tree.
 - `WelcomeScreen.tsx`: new Cloud Vault login/register flow (replaces the misleading "R2 API Token" input).
@@ -44,7 +63,7 @@ User had 6 notes loaded on the Cloud Vault but the sidebar settings showed only 
 - `.env.example`: documents `VITE_API_URL` override.
 - Local git HEAD is NOT reset to `79650ae` — it still shows the Replit checkpoint chain (`fc75f84` → `91142ec` → `2e12a63`). The **file contents** match remote even though `git log` does not. Treat remote as the source of truth for history.
 
-**State after:** Working tree files match `github/main@79650ae`. AAR.md now includes this sync entry and is pushed back to remote, so the next reader (opencode or Replit Agent) sees both. All three workflows restarted cleanly.
+**State after:** Working tree files match `github/main@79650ae`. changes.md now includes this sync entry and is pushed back to remote, so the next reader (opencode or Replit Agent) sees both. All three workflows restarted cleanly.
 
 **Notes for next AI:**
 - Pulling remote into Replit must go through the GitHub Contents API as long as the main-agent git sandbox is restrictive. The pattern is in this commit's task plan at `.local/tasks/task-9.md`.
@@ -104,7 +123,7 @@ User had 6 notes loaded on the Cloud Vault but the sidebar settings showed only 
 ## 2026-05-14 — Code review fixes: postMessage, R2 sync helper, vault init refactor
 **Author:** opencode
 **Commits:** `9e376a9`
-**Scope:** `artifacts/notesnook/src/lib/store.ts`, `AAR.md`
+**Scope:** `artifacts/notesnook/src/lib/store.ts`, `changes.md`
 **Changes:**
 - **postMessage origin safety:** `notifyParent()` now uses an explicit allowlist (`ALLOWED_PARENT_ORIGINS`) with wildcard matching for `*.hollr.chat`, `*.khurk.xyz`, and `*.replit.dev`. The origin is resolved from `ancestorOrigins` or `document.referrer` and checked against the allowlist. If no known parent is detected, `postMessage` is skipped entirely — never `'*'`.
 - **R2 sync helper extracted:** The 15-repetition `enqueueEncryptedMetaAndTasks` + `flushR2Queue` fire-and-forget pattern consolidated into a single `syncMetaAndTasksToR2()` helper.
@@ -119,13 +138,13 @@ User had 6 notes loaded on the Cloud Vault but the sidebar settings showed only 
 ## 2026-05-14 — GitHub Pages deployment + AAR seed
 **Author:** Replit Agent
 **Commits:** `a050c3c` (vite config), gh-pages branch HEAD `bc7971c`
-**Scope:** `artifacts/notesnook/vite.config.ts`, GitHub `gh-pages` branch, repo Pages config, `AAR.md` (new)
+**Scope:** `artifacts/notesnook/vite.config.ts`, GitHub `gh-pages` branch, repo Pages config, `changes.md` (new)
 **Changes:**
 - Made `PORT` env var optional during `vite build` (still required for dev/preview). `BASE_PATH` remains required.
 - Built with `BASE_PATH=/ballpoint/`, copied `index.html` → `404.html` for SPA routing.
 - Pushed all 19 built files from `dist/public` to a new orphan `gh-pages` branch via the GitHub Git Data API (no local git commit needed — main agent can't do destructive git).
 - Switched repo's GitHub Pages source from `main` → `gh-pages`, triggered a rebuild.
-- Seeded this `AAR.md` with full project history.
+- Seeded this `changes.md` with full project history.
 **State after:** Live at https://skulls206-creator.github.io/ballpoint/. `main` @ `a050c3c`. Tasks #4 and #5 CANCELLED.
 **Notes for next AI:**
 - To redeploy: `cd artifacts/notesnook && NODE_ENV=production BASE_PATH=/ballpoint/ pnpm run build`, then push `dist/public` to `gh-pages` via the GitHub API (token comes from `listConnections('github')[0].settings`).
@@ -234,7 +253,7 @@ User had 6 notes loaded on the Cloud Vault but the sidebar settings showed only 
 - Keep entries ≤15 lines unless the change is genuinely complex.
 - Skip trivial changes (formatting, typos, comment-only edits).
 - Include a **Notes for next AI** section whenever there's a non-obvious gotcha, a file to avoid, or an architectural decision worth preserving.
-- Commit `AAR.md` together with the change it describes.
+- Commit `changes.md` together with the change it describes.
 
 ---
 

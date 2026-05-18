@@ -241,6 +241,14 @@ interface NotesState {
   setSearchQuery: (query: string) => void;
   toggleTheme: () => void;
   setAccentColor: (color: AccentColor) => void;
+
+  // Session lock auto-timer
+  /** Duration in ms after which all session-unlocked notes auto-lock. 0 = disabled. */
+  sessionLockTimeoutMs: number;
+  /** Set auto-lock timeout (in ms). Pass 0 to disable. */
+  setSessionLockTimeout: (ms: number) => void;
+  /** Internal: restart or cancel the auto-lock timer each time sessionUnlockedIds changes. */
+  _restartSessionLockTimer: () => void;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -469,6 +477,35 @@ function finishVaultInit(
   }
 }
 
+// ─── Session lock auto-timer ──────────────────────────────────────────────────
+
+let _sessionLockTimer: ReturnType<typeof setTimeout> | null = null;
+let _sessionLockTimeoutMs = 0;
+
+function _clearSessionLockTimer() {
+  if (_sessionLockTimer !== null) {
+    clearTimeout(_sessionLockTimer);
+    _sessionLockTimer = null;
+  }
+}
+
+function _restartSessionLockTimer() {
+  _clearSessionLockTimer();
+  if (_sessionLockTimeoutMs <= 0) return;
+  _sessionLockTimer = setTimeout(() => {
+    _sessionLockTimer = null;
+    const { sessionUnlockedIds, activeNoteId } = useNotesStore.getState();
+    if (sessionUnlockedIds.size === 0) return;
+    const next = new Set<string>();
+    useNotesStore.setState({ sessionUnlockedIds: next });
+    // If the active note is now locked, clear editor content
+    const activeNote = useNotesStore.getState().notes.find(n => n.id === activeNoteId);
+    if (activeNote?.locked && activeNoteId && !next.has(activeNoteId)) {
+      useNotesStore.setState({ activeContent: '', isDirty: false });
+    }
+  }, _sessionLockTimeoutMs);
+}
+
 // ─── Store ───────────────────────────────────────────────────────────────────
 
 export const useNotesStore = create<NotesState>((set, get) => ({
@@ -491,6 +528,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
   isVaultEncrypted: false,
   noteSizes: {},
   sessionUnlockedIds: new Set<string>(),
+  sessionLockTimeoutMs: 0,
 
   syncStatus: 'idle',
   syncError: null,
@@ -545,13 +583,17 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     }
   },
 
-  reset: () => set({
-    userId: null, vaultHandle: null, proxyVault: null, proxyContent: {}, notes: [], metadata: {}, tasks: {},
-    activeNoteId: null, activeContent: '', isDirty: false, isLoading: false, searchQuery: '',
-    encryptionKey: null, isVaultEncrypted: false, noteSizes: {}, sessionUnlockedIds: new Set<string>(),
-    storageMode: 'local' as const, r2Mode: false, r2Token: null, r2EncryptionKey: null, r2PendingCount: 0,
-    r2Status: 'idle' as const, r2Error: null, r2LastSynced: null,
-  }),
+  reset: () => {
+    _clearSessionLockTimer();
+    set({
+      userId: null, vaultHandle: null, proxyVault: null, proxyContent: {}, notes: [], metadata: {}, tasks: {},
+      activeNoteId: null, activeContent: '', isDirty: false, isLoading: false, searchQuery: '',
+      encryptionKey: null, isVaultEncrypted: false, noteSizes: {}, sessionUnlockedIds: new Set<string>(),
+      sessionLockTimeoutMs: 0,
+      storageMode: 'local' as const, r2Mode: false, r2Token: null, r2EncryptionKey: null, r2PendingCount: 0,
+      r2Status: 'idle' as const, r2Error: null, r2LastSynced: null,
+    });
+  },
 
   openNewVault: async (userId) => {
     const handle = await openVault(userId);
@@ -986,12 +1028,14 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const next = new Set(get().sessionUnlockedIds);
     next.add(id);
     set({ sessionUnlockedIds: next });
+    _restartSessionLockTimer();
   },
 
   sessionLock: (id) => {
     const next = new Set(get().sessionUnlockedIds);
     next.delete(id);
     set({ sessionUnlockedIds: next });
+    _restartSessionLockTimer();
   },
 
   setNoteStatus: async (id, status) => {
@@ -1839,6 +1883,22 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     try { localStorage.setItem('ballpoint-accent', color); } catch { /* private browsing */ }
     applyTheme(get().theme, color);
     set({ accentColor: color });
+  },
+
+  sessionLockTimeoutMs: 0,
+
+  setSessionLockTimeout: (ms) => {
+    set({ sessionLockTimeoutMs: ms });
+    _sessionLockTimeoutMs = ms;
+    if (ms <= 0) {
+      _clearSessionLockTimer();
+    } else if (get().sessionUnlockedIds.size > 0) {
+      _restartSessionLockTimer();
+    }
+  },
+
+  _restartSessionLockTimer: () => {
+    _restartSessionLockTimer();
   },
 }));
 

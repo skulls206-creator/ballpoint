@@ -69,6 +69,8 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
   const setPin                = useNotesStore(s => s.setPin);
   const clearPin              = useNotesStore(s => s.clearPin);
   const hasPin                = useNotesStore(s => s.hasPin);
+  const sessionLockTimeoutMs  = useNotesStore(s => s.sessionLockTimeoutMs);
+  const setSessionLockTimeout = useNotesStore(s => s.setSessionLockTimeout);
 
   const noteSizes  = useNotesStore(s => s.noteSizes);
 
@@ -536,6 +538,50 @@ export function Sidebar({ onOpenCommandPalette, onMobileClose }: {
                     </div>
                   </DialogContent>
                 </Dialog>
+              </div>
+            )}
+
+            {/* Session lock auto-timer */}
+            {(vaultHandle || proxyVault !== null) && (
+              <div>
+                <p className="text-[9px] uppercase tracking-widest text-sidebar-foreground/35 mb-1.5 font-semibold">Auto-Lock Timer</p>
+                <div className="rounded-lg border border-sidebar-border/60 overflow-hidden">
+                  <div className="flex items-center gap-2 px-2.5 py-2">
+                    <div className="w-5 h-5 rounded-full bg-sidebar-accent flex items-center justify-center shrink-0">
+                      <Clock size={10} className={sessionLockTimeoutMs > 0 ? "text-amber-500" : "text-sidebar-foreground/40"} />
+                    </div>
+                    <span className="text-[11px] text-sidebar-foreground/70 flex-1">
+                      {sessionLockTimeoutMs > 0
+                        ? `Lock after ${sessionLockTimeoutMs < 60000
+                            ? `${sessionLockTimeoutMs / 1000}s`
+                            : `${sessionLockTimeoutMs / 60000}m`}`
+                        : 'Off'}
+                    </span>
+                  </div>
+                  <div className="h-px bg-sidebar-border/40 mx-2" />
+                  <div className="flex gap-0.5 px-2 py-1.5 flex-wrap">
+                    {[
+                      { label: 'Off', ms: 0 },
+                      { label: '30s', ms: 30000 },
+                      { label: '1m', ms: 60000 },
+                      { label: '5m', ms: 300000 },
+                      { label: '15m', ms: 900000 },
+                    ].map(opt => (
+                      <button
+                        key={opt.ms}
+                        onClick={() => setSessionLockTimeout(opt.ms)}
+                        className={cn(
+                          'px-2 py-1 rounded text-[10px] font-medium transition-colors',
+                          sessionLockTimeoutMs === opt.ms
+                            ? 'bg-primary text-primary-foreground'
+                            : 'text-sidebar-foreground/50 hover:bg-sidebar-accent hover:text-sidebar-foreground'
+                        )}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
               </div>
             )}
 
