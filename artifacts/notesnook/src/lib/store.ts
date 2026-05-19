@@ -1885,8 +1885,6 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     set({ accentColor: color });
   },
 
-  sessionLockTimeoutMs: 0,
-
   setSessionLockTimeout: (ms) => {
     set({ sessionLockTimeoutMs: ms });
     _sessionLockTimeoutMs = ms;

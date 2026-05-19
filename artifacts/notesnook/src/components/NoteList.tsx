@@ -196,11 +196,13 @@ export function NoteList({ onOpenSidebar, onNoteOpen }: { onOpenSidebar?: () => 
     }
   }, []);
 
+  const proxyContent = useNotesStore(s => s.proxyContent);
+
   const filteredNotes = useMemo(
     () => isTaskSection(activeSection)
       ? []
-      : selectFilteredNotes({ notes, activeSection, searchQuery } as any),
-    [notes, activeSection, searchQuery]
+      : selectFilteredNotes({ notes, activeSection, searchQuery, proxyContent } as any),
+    [notes, activeSection, searchQuery, proxyContent]
   );
 
   useEffect(() => { if (renamingId) renameRef.current?.focus(); }, [renamingId]);
