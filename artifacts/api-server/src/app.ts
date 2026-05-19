@@ -23,8 +23,9 @@ app.use(
 );
 
 // ── CORS ──────────────────────────────────────────────────────────────────────
-// All sensitive endpoints require a JWT bearer token, so CORS restrictions
-// are defense-in-depth, not the primary auth boundary.
+// All sensitive endpoints require a JWT bearer token via the Authorization
+// header — not cookies. Therefore credentials:true is not needed, and removing
+// it eliminates the CSRF attack surface from any future cookie-based auth.
 // We block plain-HTTP origins but allow any HTTPS origin so the app works
 // across every Replit deployment URL format and custom domains.
 
@@ -46,7 +47,6 @@ app.use(
       // Allow any HTTPS origin — JWT auth is the real protection gate
       return callback(null, true);
     },
-    credentials: true,
   })
 );
 

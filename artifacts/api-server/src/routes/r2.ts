@@ -79,7 +79,12 @@ function sanitizeNoteId(id: string): boolean {
     !id.includes("/") &&
     !id.includes("\\") &&
     !id.includes("..") &&
-    !/[\x00-\x1f]/.test(id)
+    !/[\x00-\x1f]/.test(id) &&
+    // Block URL-encoded path traversal sequences
+    !/%2e/i.test(id) &&
+    !/%2[f\/]/i.test(id) &&
+    !/%5c/i.test(id) &&
+    !/%00/i.test(id)
   );
 }
 

@@ -418,6 +418,9 @@ function syncMetaAndTasksToR2(): void {
   }
 }
 
+// ─── Debounce timer for syncNoteTasks ─────────────────────────────────────────
+let _syncNoteTasksTimer: ReturnType<typeof setTimeout> | null = null;
+
 // ─── Shared vault init helpers ──────────────────────────────────────────────────
 
 type VaultData = {
@@ -480,7 +483,6 @@ function finishVaultInit(
 // ─── Session lock auto-timer ──────────────────────────────────────────────────
 
 let _sessionLockTimer: ReturnType<typeof setTimeout> | null = null;
-let _sessionLockTimeoutMs = 0;
 
 function _clearSessionLockTimer() {
   if (_sessionLockTimer !== null) {
@@ -491,11 +493,10 @@ function _clearSessionLockTimer() {
 
 function _restartSessionLockTimer() {
   _clearSessionLockTimer();
-  if (_sessionLockTimeoutMs <= 0) return;
+  const { sessionLockTimeoutMs, sessionUnlockedIds, activeNoteId } = useNotesStore.getState();
+  if (sessionLockTimeoutMs <= 0) return;
   _sessionLockTimer = setTimeout(() => {
     _sessionLockTimer = null;
-    const { sessionUnlockedIds, activeNoteId } = useNotesStore.getState();
-    if (sessionUnlockedIds.size === 0) return;
     const next = new Set<string>();
     useNotesStore.setState({ sessionUnlockedIds: next });
     // If the active note is now locked, clear editor content
@@ -503,7 +504,7 @@ function _restartSessionLockTimer() {
     if (activeNote?.locked && activeNoteId && !next.has(activeNoteId)) {
       useNotesStore.setState({ activeContent: '', isDirty: false });
     }
-  }, _sessionLockTimeoutMs);
+  }, sessionLockTimeoutMs);
 }
 
 // ─── Store ───────────────────────────────────────────────────────────────────
@@ -585,6 +586,10 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   reset: () => {
     _clearSessionLockTimer();
+    if (_syncNoteTasksTimer) {
+      clearTimeout(_syncNoteTasksTimer);
+      _syncNoteTasksTimer = null;
+    }
     set({
       userId: null, vaultHandle: null, proxyVault: null, proxyContent: {}, notes: [], metadata: {}, tasks: {},
       activeNoteId: null, activeContent: '', isDirty: false, isLoading: false, searchQuery: '',
@@ -662,6 +667,11 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   disconnectVault: async (userId) => {
     await clearVault(userId);
+    _clearSessionLockTimer();
+    if (_syncNoteTasksTimer) {
+      clearTimeout(_syncNoteTasksTimer);
+      _syncNoteTasksTimer = null;
+    }
     localStorage.removeItem(activeNoteKey(userId));
     localStorage.removeItem('ballpoint-r2-mode');
     set({
@@ -1097,8 +1107,13 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     );
     const merged = mergeTasks(parsed, tasks);
     const newTasks = { ...otherTasks, ...merged };
-    await saveAllTasks(userId, newTasks);
-    set({ tasks: newTasks });
+    // Debounce: delay IndexedDB writes — rapid note switches accumulate until idle.
+    if (_syncNoteTasksTimer) clearTimeout(_syncNoteTasksTimer);
+    _syncNoteTasksTimer = setTimeout(async () => {
+      _syncNoteTasksTimer = null;
+      await saveAllTasks(get().userId!, newTasks);
+      set({ tasks: newTasks });
+    }, 300);
   },
 
   toggleTask: async (taskId) => {
@@ -1357,7 +1372,9 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const { key, content: keyContent } = await createKeyFileContent(password);
     await writeVaultFile(vaultHandle, VAULT_KEY_FILENAME, keyContent);
 
-    // Encrypt all existing note files AND their version snapshots in IndexedDB
+    // Encrypt all existing note files AND their version snapshots in IndexedDB.
+    // Each note is isolated so one encryption failure does not halt the batch.
+    const errors: string[] = [];
     for (const note of notes) {
       try {
         const raw = await readNote(note.handle);
@@ -1365,14 +1382,26 @@ export const useNotesStore = create<NotesState>((set, get) => ({
           const enc = await encryptContent(raw, key);
           await saveNote(note.handle, enc);
         }
-      } catch { /* skip unreadable */ }
-      // Migrate existing plaintext snapshots → encrypted
-      await reencryptVersions(userId, note.id, null, key).catch(() => {});
-      // Migrate existing plaintext attachment files → encrypted
-      await migrateNoteAttachments(vaultHandle, note.id, null, key).catch(() => {});
+      } catch {
+        errors.push(`encrypt note ${note.id}`);
+      }
+      try {
+        await reencryptVersions(userId, note.id, null, key);
+      } catch {
+        errors.push(`re-encrypt versions for ${note.id}`);
+      }
+      try {
+        await migrateNoteAttachments(vaultHandle, note.id, null, key);
+      } catch {
+        errors.push(`migrate attachments for ${note.id}`);
+      }
     }
 
     set({ encryptionKey: key, isVaultEncrypted: true });
+
+    if (errors.length > 0) {
+      console.warn("[enableEncryption] completed with errors:", errors);
+    }
 
     // Refresh the active note's content from memory (already decrypted in editor)
     const { activeNoteId } = get();
@@ -1383,7 +1412,9 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     const { vaultHandle, userId, notes, encryptionKey } = get();
     if (!vaultHandle || userId === null || !encryptionKey) return;
 
-    // Decrypt and rewrite every note file AND their version snapshots
+    // Decrypt and rewrite every note file AND their version snapshots.
+    // Each note is isolated so one decryption failure does not halt the batch.
+    const errors: string[] = [];
     for (const note of notes) {
       try {
         const raw = await readNote(note.handle);
@@ -1391,15 +1422,27 @@ export const useNotesStore = create<NotesState>((set, get) => ({
           const plain = await decryptContent(raw, encryptionKey);
           await saveNote(note.handle, plain);
         }
-      } catch { /* skip */ }
-      // Migrate encrypted snapshots → plaintext
-      await reencryptVersions(userId, note.id, encryptionKey, null).catch(() => {});
-      // Migrate encrypted attachment files → plaintext
-      await migrateNoteAttachments(vaultHandle, note.id, encryptionKey, null).catch(() => {});
+      } catch {
+        errors.push(`decrypt note ${note.id}`);
+      }
+      try {
+        await reencryptVersions(userId, note.id, encryptionKey, null);
+      } catch {
+        errors.push(`re-encrypt versions for ${note.id}`);
+      }
+      try {
+        await migrateNoteAttachments(vaultHandle, note.id, encryptionKey, null);
+      } catch {
+        errors.push(`migrate attachments for ${note.id}`);
+      }
     }
 
     await deleteVaultFile(vaultHandle, VAULT_KEY_FILENAME);
     set({ encryptionKey: null, isVaultEncrypted: false });
+
+    if (errors.length > 0) {
+      console.warn("[disableEncryption] completed with errors:", errors);
+    }
   },
 
   // ── PIN quick unlock ───────────────────────────────────────────────────
@@ -1470,10 +1513,8 @@ export const useNotesStore = create<NotesState>((set, get) => ({
           if (get().proxyVault !== null) {
             content = get().proxyContent[note.id] ?? '';
           } else if (get().vaultHandle) {
-            const { readNote: rn } = await import('./fileSystem');
-            const { isEncrypted: ie, decryptContent: dc } = await import('./crypto');
-            const raw = await rn(note.handle);
-            content = (ie(raw) && encryptionKey) ? await dc(raw, encryptionKey) : raw;
+            const raw = await readNote(note.handle);
+            content = (isEncrypted(raw) && encryptionKey) ? await decryptContent(raw, encryptionKey) : raw;
           }
           snapshots.push({ id: note.id, title: note.title, content, lastModified: note.lastModified });
         } catch { /* skip unreadable */ }
@@ -1540,20 +1581,18 @@ export const useNotesStore = create<NotesState>((set, get) => ({
           }
         }
       } else if (vaultHandle) {
-        const { saveNote: sn, createNote: cn, renameNote: rnote } = await import('./fileSystem');
-        const { encryptContent: ec } = await import('./crypto');
         for (const snap of snapshots) {
-          const content = encryptionKey ? await ec(snap.content, encryptionKey) : snap.content;
+          const content = encryptionKey ? await encryptContent(snap.content, encryptionKey) : snap.content;
           try {
             const note = get().notes.find(n => n.id === snap.id);
             if (note) {
-              await sn(note.handle, content);
+              await saveNote(note.handle, content);
               if (note.title !== snap.title) {
-                try { await rnote(vaultHandle, note.handle, snap.title); } catch { /* ignore rename errors */ }
+                try { await renameNote(vaultHandle, note.handle, snap.title); } catch { /* ignore rename errors */ }
               }
             } else {
-              const newHandle = await cn(vaultHandle, snap.title);
-              await sn(newHandle, content);
+              const newHandle = await createNote(vaultHandle, snap.title);
+              await saveNote(newHandle, content);
             }
           } catch { /* skip unreadable or fs-error notes */ }
         }
@@ -1738,6 +1777,11 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   disconnectR2Vault: async (userId) => {
     stopR2BackgroundSync();
+    _clearSessionLockTimer();
+    if (_syncNoteTasksTimer) {
+      clearTimeout(_syncNoteTasksTimer);
+      _syncNoteTasksTimer = null;
+    }
     localStorage.removeItem('ballpoint-r2-mode');
     localStorage.removeItem('ballpoint-r2-token');
     localStorage.removeItem('ballpoint-r2-sync');
@@ -1800,10 +1844,8 @@ export const useNotesStore = create<NotesState>((set, get) => ({
           .filter(n => n.status === 'active')
           .map(async n => {
             try {
-              const { readNote: rn } = await import('./fileSystem');
-              const raw = await rn(n.handle);
-              const { isEncrypted: ie, decryptContent: dc } = await import('./crypto');
-              const plain = (ie(raw) && encryptionKey) ? await dc(raw, encryptionKey) : raw;
+              const raw = await readNote(n.handle);
+              const plain = (isEncrypted(raw) && encryptionKey) ? await decryptContent(raw, encryptionKey) : raw;
               const enc = await encryptContent(plain, r2Key);
               await enqueueR2Op(userId, { op: 'put-note', key: n.id, content: enc });
             } catch { /* skip */ }
@@ -1887,7 +1929,6 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   setSessionLockTimeout: (ms) => {
     set({ sessionLockTimeoutMs: ms });
-    _sessionLockTimeoutMs = ms;
     if (ms <= 0) {
       _clearSessionLockTimer();
     } else if (get().sessionUnlockedIds.size > 0) {

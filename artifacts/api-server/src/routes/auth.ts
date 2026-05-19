@@ -1,6 +1,7 @@
 import { Router, type IRouter, type Request, type Response, type NextFunction } from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import crypto from "crypto";
 import { db, usersTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import { RegisterBody, LoginBody } from "@workspace/api-zod";
@@ -10,15 +11,17 @@ const router: IRouter = Router();
 
 const JWT_SECRET = process.env["JWT_SECRET"];
 
+const isProduction = process.env["NODE_ENV"] === "production";
+
 if (!JWT_SECRET) {
-  if (process.env["NODE_ENV"] === "production") {
+  if (isProduction) {
     throw new Error("JWT_SECRET environment variable must be set in production.");
   }
-  // In development, warn loudly but continue with a non-guessable fallback
-  console.warn("[WARN] JWT_SECRET is not set — using an insecure development-only secret. Set JWT_SECRET before deploying.");
+  // In development, warn loudly but continue with a strong random fallback
+  console.warn("[WARN] JWT_SECRET is not set — using a development-only fallback. Set JWT_SECRET before deploying.");
 }
 
-const ACTIVE_JWT_SECRET = JWT_SECRET ?? "dev-only-do-not-use-in-prod-" + Math.random().toString(36);
+const ACTIVE_JWT_SECRET = JWT_SECRET ?? crypto.randomBytes(32).toString("hex");
 const SALT_ROUNDS = 12;
 const TOKEN_EXPIRY = "30d";
 

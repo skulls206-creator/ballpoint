@@ -115,12 +115,15 @@ router.post("/sync/decrypt", requireAuth, async (req: Request, res: Response) =>
       const ab = await (raw as Blob).arrayBuffer();
       text = Buffer.from(ab).toString("utf8");
     } else {
-      // Last resort: JSON.stringify for debugging, then throw
-      throw new Error(`Unexpected decryptFile return type: ${Object.prototype.toString.call(raw)}`);
+      // Log the debug info server-side, send a safe error to the client
+      console.error("[sync/decrypt] Unexpected decryptFile return type:", Object.prototype.toString.call(raw));
+      throw new Error("Unexpected decryption result format");
     }
     res.json({ text });
   } catch (err: any) {
-    res.status(502).json({ error: err.message ?? "Decrypt failed" });
+    // Log the full error server-side, only send a generic message to the client
+    console.error("[sync/decrypt]", err.message ?? err);
+    res.status(502).json({ error: "Decryption failed. Check server logs for details." });
   }
 });
 

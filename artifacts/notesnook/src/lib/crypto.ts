@@ -40,7 +40,7 @@ export async function deriveKey(password: string, salt: Uint8Array): Promise<Cry
     ['deriveKey']
   );
   return window.crypto.subtle.deriveKey(
-    { name: 'PBKDF2', salt: salt as any, iterations: 200_000, hash: 'SHA-256' },
+    { name: 'PBKDF2', salt: salt as any, iterations: 600_000, hash: 'SHA-256' },
     keyMaterial,
     { name: 'AES-GCM', length: 256 },
     false,
@@ -101,21 +101,15 @@ export async function openKeyFile(
 }
 
 // ── PIN-based quick unlock ────────────────────────────────────────────────────
-// Encrypts the vault password with a PIN-derived key and stores it in localStorage.
+// Encrypts the vault password with a PIN-derived key and holds it in memory only.
 // On PIN unlock, decrypts to get the vault password, then feeds it to unlockVault().
+// The encrypted vault password is never persistently stored (no localStorage).
+// This prevents XSS from recovering the vault key from cold storage.
 
-const PIN_STORAGE_PREFIX = 'ballpoint-pin-';
-
-function pinStorageKey(userId: number): string {
-  return `${PIN_STORAGE_PREFIX}${userId}`;
-}
+const pinVault = new Map<number, string>();
 
 export function hasPin(userId: number): boolean {
-  try {
-    return localStorage.getItem(pinStorageKey(userId)) !== null;
-  } catch {
-    return false;
-  }
+  return pinVault.has(userId);
 }
 
 export async function storePin(
@@ -140,9 +134,7 @@ export async function storePin(
     salt: Array.from(salt).map(b => b.toString(16).padStart(2, '0')).join(''),
     data: b64,
   });
-  try {
-    localStorage.setItem(pinStorageKey(userId), data);
-  } catch { /* private browsing */ }
+  pinVault.set(userId, data);
 }
 
 export async function getVaultPasswordFromPin(
@@ -150,7 +142,7 @@ export async function getVaultPasswordFromPin(
   pin: string
 ): Promise<string | null> {
   try {
-    const raw = localStorage.getItem(pinStorageKey(userId));
+    const raw = pinVault.get(userId);
     if (!raw) return null;
     const { salt: saltHex, data: b64 } = JSON.parse(raw) as {
       v: number; salt: string; data: string;
@@ -174,7 +166,5 @@ export async function getVaultPasswordFromPin(
 }
 
 export function clearPin(userId: number): void {
-  try {
-    localStorage.removeItem(pinStorageKey(userId));
-  } catch { /* private browsing */ }
+  pinVault.delete(userId);
 }
