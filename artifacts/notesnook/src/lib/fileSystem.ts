@@ -1,5 +1,6 @@
 import { get, set, del } from 'idb-keyval';
 import type { NoteStatus, ReminderStatus } from './metadata';
+import { VAULT_KEY_FILENAME } from './crypto';
 
 export const isFileSystemSupported = 'showDirectoryPicker' in window;
 
@@ -33,6 +34,9 @@ async function verifyPermission(handle: any, readWrite: boolean): Promise<boolea
 }
 
 export async function openVault(userId: number): Promise<FileSystemDirectoryHandle | null> {
+  if (typeof (window as any).showDirectoryPicker !== 'function') {
+    throw new Error('showDirectoryPicker not supported');
+  }
   try {
     const dir = await (window as any).showDirectoryPicker({ mode: 'readwrite' });
     await set(vaultKey(userId), dir);
@@ -163,4 +167,84 @@ export async function deleteVaultFile(
   name: string
 ): Promise<void> {
   try { await dir.removeEntry(name); } catch { /* already gone */ }
+}
+
+// ─── Vault content cache (IndexedDB fallback when handle permission is lost) ────
+
+function vaultCacheKey(userId: number) {
+  return `ballpoint-vault-cache-${userId}`;
+}
+
+interface CachedNote {
+  id: string;
+  title: string;
+  lastModified: number;
+  content: string;
+}
+
+interface VaultCache {
+  isVaultEncrypted: boolean;
+  hasKeyFile: boolean;
+  /** Raw content of the key file (encrypted key descriptor), or null. */
+  keyFileContent: string | null;
+  notes: CachedNote[];
+}
+
+/** Store the vault note contents in IndexedDB for cache recovery. */
+export async function writeVaultCache(
+  userId: number,
+  cache: VaultCache
+): Promise<void> {
+  await set(vaultCacheKey(userId), cache);
+}
+
+/** Load the cached vault snapshot from IndexedDB (returns null when absent). */
+export async function readVaultCache(
+  userId: number
+): Promise<VaultCache | null> {
+  try {
+    const data = await get<VaultCache>(vaultCacheKey(userId));
+    return data ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Scan the vault directory and build a full cache entry (notes + encryption status).
+ * Reads every note's content into memory for cache recovery.
+ */
+export async function buildVaultCache(
+  dirHandle: FileSystemDirectoryHandle,
+  userId: number,
+): Promise<VaultCache> {
+  const keyFile = await readVaultFile(dirHandle, VAULT_KEY_FILENAME);
+  const notes: CachedNote[] = [];
+  try {
+    for await (const entry of (dirHandle as any).values()) {
+      if (entry.kind === 'file' && (entry.name.endsWith('.md') || entry.name.endsWith('.txt'))) {
+        try {
+          const file = await entry.getFile();
+          const content = await file.text();
+          notes.push({
+            id: entry.name,
+            title: entry.name.replace(/\.(md|txt)$/, ''),
+            lastModified: file.lastModified,
+            content,
+          });
+        } catch { /* skip unreadable */ }
+      }
+    }
+  } catch { /* best-effort */ }
+  return {
+    isVaultEncrypted: keyFile !== null,
+    hasKeyFile: keyFile !== null,
+    keyFileContent: keyFile,
+    notes,
+  };
+}
+
+/** Remove the vault cache (call on disconnect / when clearing vault). */
+export async function clearVaultCache(userId: number): Promise<void> {
+  await del(vaultCacheKey(userId));
 }

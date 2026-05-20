@@ -3,6 +3,7 @@ import {
   openVault, loadVault, saveVaultHandle, scanFolder, scanFolderSizes, readNote, saveNote,
   createNote, deleteNote, renameNote, clearVault, NoteFile,
   readVaultFile, writeVaultFile, deleteVaultFile,
+  buildVaultCache, writeVaultCache, readVaultCache, clearVaultCache,
 } from './fileSystem';
 
 import {
@@ -165,6 +166,7 @@ interface NotesState {
   openNewVault: (userId: number) => Promise<void>;
   openVaultFromHandle: (userId: number, handle: FileSystemDirectoryHandle) => Promise<void>;
   openVaultFromProxy: (userId: number, name: string, files: ProxyFile[]) => Promise<void>;
+  reconnectVault: (userId: number) => Promise<void>;
   disconnectVault: (userId: number) => Promise<void>;
   refreshNotes: () => Promise<void>;
 
@@ -465,6 +467,12 @@ function finishVaultInit(
     ...extra,
   });
   scanFolderSizes(handle).then(noteSizes => useNotesStore.setState({ noteSizes })).catch(() => {});
+
+  // Build and cache note contents in IndexedDB so they survive handle-permission loss
+  buildVaultCache(handle, userId)
+    .then(cache => writeVaultCache(userId, cache))
+    .catch(() => {});
+
   if (!data.isVaultEncrypted) {
     const { selectNote } = useNotesStore.getState();
     const lastId = localStorage.getItem(activeNoteKey(userId));
@@ -478,6 +486,75 @@ function finishVaultInit(
       .then(tasks => useNotesStore.setState({ tasks }))
       .catch(() => {});
   }
+}
+
+/**
+ * Try to restore a local vault from the IndexedDB content cache when the
+ * real FileSystemDirectoryHandle permission is unavailable. Returns true on
+ * success, false when there is no cached data.
+ */
+async function restoreFromCache(
+  userId: number,
+  vaultHandle: FileSystemDirectoryHandle | null,
+  extra: Record<string, unknown> = {},
+): Promise<boolean> {
+  const cache = await readVaultCache(userId);
+  if (!cache) return false;
+
+  const [meta, existingTasks] = await Promise.all([
+    loadAllMetadata(userId),
+    loadAllTasks(userId),
+  ]);
+
+  const proxyContent: Record<string, string> = {};
+  const noteSizes: Record<string, number> = {};
+  const rawFiles = cache.notes.map(n => {
+    proxyContent[n.id] = n.content;
+    noteSizes[n.id] = new TextEncoder().encode(n.content).length;
+    return {
+      id: n.id,
+      handle: { name: n.id } as unknown as FileSystemFileHandle,
+      name: n.id,
+      title: n.title,
+      lastModified: n.lastModified,
+    };
+  });
+
+  // Build fake handles that we never actually call FS methods on
+  const notes = mergeWithMeta(rawFiles, meta);
+
+  useNotesStore.setState({
+    vaultHandle,
+    proxyVault: '__vault_cache__',
+    proxyContent,
+    notes,
+    metadata: meta,
+    tasks: existingTasks,
+    isVaultEncrypted: cache.isVaultEncrypted,
+    encryptionKey: null,
+    isLoading: false,
+    noteSizes,
+    ...extra,
+  });
+
+  // Pre-elect the last-active note
+  const lastId = localStorage.getItem(activeNoteKey(userId));
+  if (lastId && notes.find(n => n.id === lastId)) {
+    const { selectNote } = useNotesStore.getState();
+    selectNote(lastId);
+  } else {
+    const first = notes.find(n => n.status === 'active');
+    if (first) {
+      const { selectNote } = useNotesStore.getState();
+      selectNote(first.id);
+    }
+  }
+
+  buildFullTaskIndex(userId, notes, existingTasks, null)
+    .then(tasks => useNotesStore.setState({ tasks }))
+    .catch(() => {});
+
+  return true;
 }
 
 // ─── Session lock auto-timer ──────────────────────────────────────────────────
@@ -580,7 +657,14 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         r2Mode: wasLocalPlusR2,
       });
     } else {
-      set({ isLoading: false });
+      // Vault handle permission was lost — try the IndexedDB content cache
+      const restored = await restoreFromCache(userId, null, {
+        storageMode: wasLocalPlusR2 ? 'local+r2' : 'local',
+        r2Mode: wasLocalPlusR2,
+      });
+      if (!restored) {
+        set({ isLoading: false });
+      }
     }
   },
 
@@ -619,6 +703,17 @@ export const useNotesStore = create<NotesState>((set, get) => ({
     await saveVaultHandle(userId, handle);
     const data = await loadVaultData(handle, userId);
     finishVaultInit(handle, data, userId);
+  },
+
+  reconnectVault: async (userId) => {
+    // User explicitly re-selects the folder to get fresh FS handle permission
+    const handle = await openVault(userId);
+    if (!handle) return;
+    set({ isLoading: true });
+    const data = await loadVaultData(handle, userId);
+    // Clear proxy cache flag — we have the real handle now
+    const { proxyContent: cachedContent } = get();
+    finishVaultInit(handle, data, userId, { proxyVault: null, proxyContent: cachedContent });
   },
 
   openVaultFromProxy: async (userId, name, files) => {
@@ -667,6 +762,7 @@ export const useNotesStore = create<NotesState>((set, get) => ({
 
   disconnectVault: async (userId) => {
     await clearVault(userId);
+    await clearVaultCache(userId);
     _clearSessionLockTimer();
     if (_syncNoteTasksTimer) {
       clearTimeout(_syncNoteTasksTimer);
@@ -1323,6 +1419,26 @@ export const useNotesStore = create<NotesState>((set, get) => ({
         .then(tasks => set({ tasks }))
         .catch(() => {});
 
+      return true;
+    }
+
+    // ── Cache-restored vault path ────────────────────────────────────────
+    if (!vaultHandle && proxyVault === '__vault_cache__') {
+      const cache = await readVaultCache(userId);
+      if (!cache || !cache.keyFileContent) return false;
+      const key = await openKeyFile(cache.keyFileContent, password);
+      if (!key) return false;
+      set({ encryptionKey: key });
+      const lastId = localStorage.getItem(activeNoteKey(userId));
+      if (lastId && notes.find(n => n.id === lastId)) {
+        get().selectNote(lastId);
+      } else {
+        const first = notes.find(n => n.status === 'active');
+        if (first) get().selectNote(first.id);
+      }
+      buildFullTaskIndex(userId, notes, existingTasks, key)
+        .then(tasks => set({ tasks }))
+        .catch(() => {});
       return true;
     }
 

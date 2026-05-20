@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Lock, Mail, LogIn, AlertCircle, Menu, ArrowLeft, X, Loader2 } from 'lucide-react';
+import { Lock, Mail, LogIn, AlertCircle, Menu, ArrowLeft, X, Loader2, FolderOpen, XCircle } from 'lucide-react';
 import { useNotesStore } from '../lib/store';
 import { getApiUrl } from '../lib/apiUrl';
 import { WelcomeScreen } from '../components/WelcomeScreen';
@@ -371,6 +371,10 @@ export default function Home() {
     </>
   );
 
+  // ── Cache restore banner ────────────────────────────────────────
+  // Shown when vault handle permission was lost and notes were restored from cache
+  const isFromCache = proxyVault === '__vault_cache__';
+
   // R2 cloud vault on reload: show unlock screen instead of WelcomeScreen
   if ((!vaultHandle && proxyVault === null) && !r2Mode) {
     return (
@@ -394,8 +398,36 @@ export default function Home() {
     );
   }
 
+  // ── Cache restore banner ────────────────────────────────────────
+  const cacheBanner = isFromCache ? (
+    <div className="sticky top-0 z-50 flex items-center gap-2 bg-amber-500/15 border-b border-amber-500/25 px-4 py-2 text-[11px] text-amber-700 dark:text-amber-300">
+      <AlertCircle size={14} className="shrink-0" />
+      <span className="flex-1">
+        Folder access restored from cache —{' '}
+        <button
+          onClick={async () => {
+            const { reconnectVault, userId } = useNotesStore.getState();
+            if (userId !== null) await reconnectVault(userId);
+          }}
+          className="underline font-semibold hover:no-underline"
+        >
+          re-select folder
+        </button>
+        {' '}to regain full access
+      </span>
+      <button
+        onClick={() => useNotesStore.setState({ proxyVault: null })}
+        className="shrink-0 opacity-60 hover:opacity-100 transition-opacity"
+        title="Dismiss"
+      >
+        <XCircle size={14} />
+      </button>
+    </div>
+  ) : null;
+
   return (
     <div className="flex h-screen w-full bg-background overflow-hidden text-foreground relative">
+      {cacheBanner}
       {sidebarDrawer}
 
       {isTaskView ? (
