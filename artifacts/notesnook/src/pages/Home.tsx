@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Lock, Mail, LogIn, AlertCircle, Menu, ArrowLeft, X, Loader2, FolderOpen, XCircle } from 'lucide-react';
+import { Lock, Mail, LogIn, AlertCircle, Menu, ArrowLeft, X, Loader2, FolderOpen, XCircle, RefreshCcw, FolderInput } from 'lucide-react';
 import { useNotesStore } from '../lib/store';
 import { getApiUrl } from '../lib/apiUrl';
 import { WelcomeScreen } from '../components/WelcomeScreen';
@@ -400,24 +400,54 @@ export default function Home() {
 
   // ── Cache restore banner ────────────────────────────────────────
   const cacheBanner = isFromCache ? (
-    <div className="sticky top-0 z-50 flex items-center gap-2 bg-amber-500/15 border-b border-amber-500/25 px-4 py-2 text-[11px] text-amber-700 dark:text-amber-300">
-      <AlertCircle size={14} className="shrink-0" />
-      <span className="flex-1">
-        Folder access restored from cache —{' '}
-        <button
-          onClick={async () => {
-            const { reconnectVault, userId } = useNotesStore.getState();
-            if (userId !== null) await reconnectVault(userId);
-          }}
-          className="underline font-semibold hover:no-underline"
-        >
-          re-select folder
-        </button>
-        {' '}to regain full access
+    <div className="sticky top-0 z-50 flex items-start gap-2 bg-amber-500/15 border-b border-amber-500/25 px-4 py-3 text-[11px] text-amber-700 dark:text-amber-300">
+      <AlertCircle size={14} className="shrink-0 mt-0.5" />
+      <span className="flex-1 min-w-0">
+        <span className="font-semibold">Folder access lost</span> — notes restored from cache.
+        <div className="flex flex-wrap items-center gap-1.5 mt-2">
+          <button
+            onClick={async () => {
+              const { reconnectVault, userId } = useNotesStore.getState();
+              if (userId !== null) {
+                try {
+                  await reconnectVault(userId);
+                } catch (e: any) {
+                  if (e?.message?.includes('showDirectoryPicker not supported')) {
+                    alert('Your browser does not support folder selection (showDirectoryPicker is unavailable). Use the cloud vault instead.');
+                  }
+                }
+              }
+            }}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-amber-600/30 dark:border-amber-400/30 bg-amber-500/10 hover:bg-amber-500/20 transition-colors"
+            title="Reconnect this folder"
+          >
+            <RefreshCcw size={12} />
+            Reconnect this folder
+          </button>
+          <button
+            onClick={async () => {
+              const { reconnectVault, userId } = useNotesStore.getState();
+              if (userId !== null) {
+                try {
+                  await reconnectVault(userId);
+                } catch (e: any) {
+                  if (e?.message?.includes('showDirectoryPicker not supported')) {
+                    alert('Your browser does not support folder selection (showDirectoryPicker is unavailable). Use the cloud vault instead.');
+                  }
+                }
+              }
+            }}
+            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-md border border-amber-600/30 dark:border-amber-400/30 bg-amber-500/10 hover:bg-amber-500/20 transition-colors"
+            title="Pick a different folder"
+          >
+            <FolderInput size={12} />
+            Pick different folder
+          </button>
+        </div>
       </span>
       <button
         onClick={() => useNotesStore.setState({ proxyVault: null })}
-        className="shrink-0 opacity-60 hover:opacity-100 transition-opacity"
+        className="shrink-0 opacity-60 hover:opacity-100 transition-colors"
         title="Dismiss"
       >
         <XCircle size={14} />

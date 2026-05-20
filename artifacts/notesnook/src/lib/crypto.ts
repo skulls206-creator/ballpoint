@@ -103,13 +103,28 @@ export async function openKeyFile(
 // ── PIN-based quick unlock ────────────────────────────────────────────────────
 // Encrypts the vault password with a PIN-derived key and holds it in memory only.
 // On PIN unlock, decrypts to get the vault password, then feeds it to unlockVault().
-// The encrypted vault password is never persistently stored (no localStorage).
-// This prevents XSS from recovering the vault key from cold storage.
+// The encrypted vault password is persisted to localStorage (AES-256-GCM ciphertext
+// with a PIN-derived key + random salt), so PIN setup survives page refresh.
+// The PIN itself is never stored — only the encrypted blob, which is safe against
+// cold storage attacks since an attacker would need the PIN to decrypt.
+
+function pinStorageKey(userId: number): string {
+  return `ballpoint-pin-${userId}`;
+}
 
 const pinVault = new Map<number, string>();
 
 export function hasPin(userId: number): boolean {
-  return pinVault.has(userId);
+  if (pinVault.has(userId)) return true;
+  // Check localStorage in case the page was refreshed and the map is empty.
+  try {
+    const stored = localStorage.getItem(pinStorageKey(userId));
+    if (stored) {
+      pinVault.set(userId, stored);
+      return true;
+    }
+  } catch { /* private browsing — localStorage unavailable */ }
+  return false;
 }
 
 export async function storePin(
@@ -135,6 +150,10 @@ export async function storePin(
     data: b64,
   });
   pinVault.set(userId, data);
+  // Persist to localStorage so PIN survives page refresh.
+  try {
+    localStorage.setItem(pinStorageKey(userId), data);
+  } catch { /* private browsing */ }
 }
 
 export async function getVaultPasswordFromPin(
@@ -167,4 +186,7 @@ export async function getVaultPasswordFromPin(
 
 export function clearPin(userId: number): void {
   pinVault.delete(userId);
+  try {
+    localStorage.removeItem(pinStorageKey(userId));
+  } catch { /* private browsing */ }
 }

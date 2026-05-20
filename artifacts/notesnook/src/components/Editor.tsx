@@ -463,14 +463,7 @@ function TextareaContextMenu({
         { icon: <Code size={11} />,          label: 'Inline code',    action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '`', suffix: '`', placeholder: 'code' }, onChange); } },
       ],
     },
-    {
-      label: 'Headings',
-      items: [
-        { icon: <Heading1 size={11} />, label: 'Heading 1', action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '# ', line: true }, onChange); } },
-        { icon: <Heading2 size={11} />, label: 'Heading 2', action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '## ', line: true }, onChange); } },
-        { icon: <Heading3 size={11} />, label: 'Heading 3', action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '### ', line: true }, onChange); } },
-      ],
-    },
+
     {
       label: 'Lists',
       items: [
@@ -479,15 +472,7 @@ function TextareaContextMenu({
         { icon: <ListChecks size={11} />,  label: 'Task list',     action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '- [ ] ', line: true }, onChange); } },
       ],
     },
-    {
-      label: 'Insert',
-      items: [
-        { icon: <Quote size={11} />,  label: 'Blockquote',     action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '> ', line: true }, onChange); } },
-        { icon: <Code2 size={11} />,  label: 'Code block',     action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '```', suffix: '```', block: true, placeholder: 'code' }, onChange); } },
-        { icon: <Link2 size={11} />,  label: 'Insert link',    action: () => { const ta = textareaRef.current; if (ta) insertLink(ta, onChange); } },
-        { icon: <Minus size={11} />,  label: 'Horizontal rule', action: () => { const ta = textareaRef.current; if (ta) insertMarkdown(ta, { prefix: '\n---\n', suffix: '', placeholder: '' }, onChange); } },
-      ],
-    },
+
   ];
 
   const run = (action: () => void) => { onClose(); action(); };
